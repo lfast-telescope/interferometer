@@ -24,7 +24,7 @@ MIRROR_CONFIG = {
 
 def get_mirror_params(mirror_num):
     """Generate mirror configuration including OD, ID, and path."""
-    coated = MIRROR_CONFIG.get(mirror_num, {}).get("coated", True)
+    coated = MIRROR_CONFIG.get(mirror_num, {}).get("coated", False)
     coating_key = "coated" if coated else "uncoated"
     defaults = DEFAULTS[coating_key]
 

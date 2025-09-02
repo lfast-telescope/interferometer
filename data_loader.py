@@ -20,3 +20,19 @@ def load_measurements(folder, clear_outer, clear_inner, Z, ID_crop=1.25):
     ]
     surface = np.flip(np.mean(wf_maps, 0), 0)
     return surface
+
+def load_multiple_surfaces(shared_path, dates, measurements, clear_outer, clear_inner, Z, ID_crop=1.25):
+    surfaces = []
+
+    if isinstance(dates, str):
+        dates = [dates]
+        measurements = [measurements]
+
+    for num, date in enumerate(dates):
+        folder = os.path.join(shared_path, date)
+        subfolder = measurements[num] if isinstance(measurements[num], str) else str(measurements[num])
+        subfolder_path = os.path.join(folder, subfolder)
+        if os.path.isdir(subfolder_path):
+            surface = load_measurements(subfolder_path, clear_outer, clear_inner, Z, ID_crop)
+            surfaces.append(surface)
+    return surfaces

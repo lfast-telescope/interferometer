@@ -22,11 +22,11 @@ def setup_paths(mirror_path, take_new, save_date, save_instance):
     """Handle logic for save/load folder paths."""
     if take_new or len(os.listdir(mirror_path)) == 0:
         folder = datetime.datetime.now().strftime('%Y%m%d')
-        save_path = os.path.join(mirror_path, folder)
+        save_path = os.path.join(mirror_path, folder) + '/'
         os.makedirs(save_path, exist_ok=True)
 
         measurement_number = len(os.listdir(save_path))
-        save_subfolder = os.path.join(save_path, str(measurement_number))
+        save_subfolder = save_path + str(measurement_number) + '/'
         os.makedirs(save_subfolder, exist_ok=True)
 
     else:

@@ -1,8 +1,13 @@
+"""
+High level utility functions for interfacing with 4D interferoemter
+Including data capture and filepath management
+"""
+
 import os
 import datetime
 
-from primary_mirror.interferometer_utils import start_alignment
-from primary_mirror.interferometer_utils import take_interferometer_measurements
+# Updated imports to use local interferometer utilities
+from .interferometer_utils import start_alignment, take_interferometer_measurements
 from LFASTfiber.libs.libNewport import smc100
 
 

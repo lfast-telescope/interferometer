@@ -10,12 +10,10 @@ from matplotlib.widgets import EllipseSelector
 from scipy import interpolate
 from scipy.optimize import minimize
 
-# Add the shared directory to the path for importing utilities
-shared_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'shared')
-if shared_path not in sys.path:
-    sys.path.insert(0, shared_path)
+# Add the parent directory to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from zernike_utils import get_M_and_C, remove_modes, Zernike_decomposition
+from shared.zernike_utils import get_M_and_C, remove_modes, Zernike_decomposition
 
 def prepare_surface(surface, Z, remove_coef, config, crop_ca = True):
     M, C = get_M_and_C(surface, Z)

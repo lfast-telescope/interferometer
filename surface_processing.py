@@ -545,4 +545,3 @@ def initial_crop(img,ksize):
     distance = np.sqrt(np.sum([np.power(x-OD_circle[0],2), np.power(y-OD_circle[1],2)],0))
     img[distance > OD_circle[2]] = np.max(img)
     return img
-

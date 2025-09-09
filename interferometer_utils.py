@@ -16,6 +16,7 @@ import time
 import requests
 import datetime
 import numpy as np
+from surface_processing import import_4D_map_auto, import_cropped_4D_map, measure_h5_circle, format_data_from_avg_circle, process_wavefront_error
 
 def take_interferometer_measurements(path, num_avg=10, onboard_averaging=True, savefile=None):
     """
@@ -135,3 +136,75 @@ def start_alignment(iterations, number_frames_avg, s, s_gain):
         zernikes = np.fromfile(coef_file, dtype=np.dtype('d'))
         correct_tip_tilt_power(zernikes, s, s_gain)
         time.sleep(1)
+
+def save_image_set(folder_path,Z,remove_coef = [],mirror_type='uncoated'):
+    #Store a folder containing h5 files as a tuple
+    output = []
+    for file in os.listdir(folder_path):
+        if file.endswith(".h5"):
+            try:
+                if mirror_type == 'uncoated':
+                    if len(remove_coef) == 0:
+                        surf = import_4D_map_auto(folder_path + file,Z)
+                    else:
+                        surf = import_4D_map_auto(folder_path + file,Z,normal_tip_tilt_power=False,remove_coef = remove_coef)
+                else:
+                    surf = import_cropped_4D_map(folder_path + file,Z,normal_tip_tilt_power=False,remove_coef = remove_coef)
+                output.append(surf[1])
+
+                if False:
+                    plt.imshow(surf[1])
+                    plt.colorbar()
+                    plt.title(file)
+                    plt.show()
+            except OSError as e:
+                print('Could not import file ' + file)
+    return output
+
+def load_interferometer_maps(array_of_paths, Z, clear_aperture_outer, clear_aperture_inner, remove_coef=[0, 1, 2, 4], new_load_method=False, pupil_size=None):
+    array_of_outputs = []
+    for path in array_of_paths:
+        if new_load_method:
+            data_holder = []
+            coord_holder = []
+            wf_maps = []
+            wf_maps = []
+            for file in os.listdir(path):
+                if file.endswith(".h5"):
+                    data, circle_coord = measure_h5_circle(path + file)
+                    data_holder.append(data)
+                    coord_holder.append(circle_coord)
+
+            for data in data_holder:
+                if remove_coef == [0, 1, 2, 4]:
+                    wf_maps.append(format_data_from_avg_circle(data, circle_coord, Z, normal_tip_tilt_power=True)[1])
+                else:
+                    wf_maps.append(format_data_from_avg_circle(data, circle_coord, Z, normal_tip_tilt_power=False,
+                                                               remove_coef=remove_coef)[1])
+            output_ref = np.flip(np.mean(wf_maps, 0), 0)
+
+        else:
+            output_ref = process_wavefront_error(path, Z, remove_coef, clear_aperture_outer, clear_aperture_inner,
+                                                 compute_focal=False)
+
+        array_of_outputs.append(output_ref)
+    return array_of_outputs
+
+def process_wavefront_error(path,Z,remove_coef,clear_aperture_outer,clear_aperture_inner,compute_focal = True,mirror_type='uncoated'): #%% Let's do some heckin' wavefront analysis!
+    #Load a set of mirror height maps in a folder and average them
+    references = save_image_set(path,Z,remove_coef,mirror_type)
+    avg_ref = np.flip(np.mean(references,0),0)
+    output_ref = avg_ref.copy()
+     
+    if compute_focal:
+        output_foc,throughput,x_foc,y_foc = propagate_wavefront(avg_ref,clear_aperture_outer,clear_aperture_inner,Z,use_best_focus=True)     
+        return output_ref, output_foc,throughput,x_foc,y_foc
+    else:
+        return output_ref
+
+def return_neighborhood(surface, x_linspace, x_loc, y_loc, neighborhood_size):
+    #For an input coordinate on the mirror [x_loc,y_loc], return the average pixel value less than neighborhood_size away  
+    [X, Y] = np.meshgrid(x_linspace, x_linspace)
+    dist = np.sqrt((X - x_loc) ** 2 + (Y - y_loc) ** 2)
+    neighborhood = dist < neighborhood_size
+    return np.nanmean(surface[neighborhood])  

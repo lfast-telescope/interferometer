@@ -16,7 +16,8 @@ import time
 import requests
 import datetime
 import numpy as np
-from surface_processing import import_4D_map_auto, import_cropped_4D_map, measure_h5_circle, format_data_from_avg_circle, process_wavefront_error
+from .surface_processing import import_4D_map_auto, import_cropped_4D_map, measure_h5_circle, format_data_from_avg_circle, process_wavefront_error
+from ..shared.wavefront_propagation import propagate_wavefront
 
 def take_interferometer_measurements(path, num_avg=10, onboard_averaging=True, savefile=None):
     """

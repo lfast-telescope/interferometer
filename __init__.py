@@ -22,7 +22,7 @@ from .interferometer_utils import (
 )
 
 from .data_loader import *
-from .mirror_processing import *
+from .surface_processing import *
 
 __all__ = [
     'take_interferometer_measurements',

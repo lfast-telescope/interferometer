@@ -18,10 +18,12 @@ def take_new_measurement(save_subfolder, number_alignment_iterations=3):
     run_measurement(save_subfolder, s, s_gain=0.5, number_alignment_iterations=number_alignment_iterations)
     s.close()
 
-def setup_paths(mirror_path, take_new, save_date, save_instance):
+def setup_paths(mirror_path, take_new, save_date, save_instance, new_folder=None):
     """Handle logic for save/load folder paths."""
     if take_new or len(os.listdir(mirror_path)) == 0:
         folder = datetime.datetime.now().strftime('%Y%m%d')
+        if new_folder is not None:
+            folder = folder + '_' + new_folder
         save_path = os.path.join(mirror_path, folder) + '/'
         os.makedirs(save_path, exist_ok=True)
 
@@ -32,6 +34,9 @@ def setup_paths(mirror_path, take_new, save_date, save_instance):
     else:
         folder_list = sorted([f for f in os.listdir(mirror_path) if f.isnumeric()])
         folder = folder_list[save_date] if isinstance(save_date, int) else save_date
+        if new_folder is not None:
+            folder = folder + '_' + new_folder
+
         save_path = os.path.join(mirror_path, folder)
 
         subfolder_list = sorted([f for f in os.listdir(save_path) if f.isnumeric()])

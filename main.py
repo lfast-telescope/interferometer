@@ -9,11 +9,11 @@ import numpy as np
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from config import get_mirror_params
-from mirror_processing import take_new_measurement, setup_paths
+from capture_utils import take_new_measurement, setup_paths
 from data_loader import load_measurements, load_multiple_surfaces
-from compare_surfaces import prepare_surface
-from primary_mirror.General_zernike_matrix import General_zernike_matrix
-from primary_mirror.LFAST_wavefront_utils import get_M_and_C, remove_modes
+from surface_processing import prepare_surface
+from shared.General_zernike_matrix import General_zernike_matrix
+from shared.zernike_utils import get_M_and_C, remove_modes
 from LFASTfiber.libs.libNewport import smc100
 from plotting_interface import plot_processed_surface, plot_psf_from_surface, plot_mirror_cs, plot_surfaces
 

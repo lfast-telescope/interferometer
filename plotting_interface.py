@@ -1,5 +1,5 @@
-from primary_mirror.plotting_utils import plot_single_mirror, plot_mirror_and_psf, plot_mirrors_side_by_side, plot_mirror_and_cs, plot_many_mirror_cs, compute_cmap_and_contour, plot_multiple_surfaces
-from primary_mirror.LFAST_wavefront_utils import propagate_wavefront
+from .plotting_utils import plot_single_mirror, plot_mirror_and_psf, plot_mirrors_side_by_side, plot_mirror_and_cs, plot_many_mirror_cs, compute_cmap_and_contour, plot_multiple_surfaces
+from mirror_control.shared.wavefront_propagation import propagate_wavefront
 
 def plot_processed_surface(surface, Z, mirror_name, config):
     plot_single_mirror(mirror_name, surface, include_rms=True)

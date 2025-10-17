@@ -1,3 +1,6 @@
+INTERFEROMETER_MIRROR_DATA_DIR = "C:/Users/lfast-admin/Documents/mirrors/"
+LOCAL_MIRROR_DATA_DIR = "C:/Users/warrenbfoster/OneDrive - University of Arizona/Documents/LFAST/mirrors/"
+
 in_to_m = 25.4e-3  # Inches to meters conversion
 
 # Default values for coated and uncoated mirrors
@@ -21,6 +24,7 @@ MIRROR_CONFIG = {
     # Add others if needed
 }
 
+import os
 
 def get_mirror_params(mirror_num):
     """Generate mirror configuration including OD, ID, and path."""
@@ -28,7 +32,9 @@ def get_mirror_params(mirror_num):
     coating_key = "coated" if coated else "uncoated"
     defaults = DEFAULTS[coating_key]
 
-    base_dir = "C:/Users/lfast-admin/Documents/mirrors/"
+    base_dir = INTERFEROMETER_MIRROR_DATA_DIR
+    if not os.path.exists(base_dir):
+        base_dir = LOCAL_MIRROR_DATA_DIR
     base_path = f"{base_dir}M{mirror_num}/"
 
     return {

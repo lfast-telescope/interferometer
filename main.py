@@ -9,11 +9,11 @@ import numpy as np
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from config import get_mirror_params
-from mirror_processing import take_new_measurement, setup_paths
+from capture_utils import take_new_measurement, setup_paths
 from data_loader import load_measurements, load_multiple_surfaces
-from compare_surfaces import prepare_surface
-from primary_mirror.General_zernike_matrix import General_zernike_matrix
-from primary_mirror.LFAST_wavefront_utils import get_M_and_C, remove_modes
+from surface_processing import prepare_surface
+from shared.General_zernike_matrix import General_zernike_matrix
+from shared.zernike_utils import get_M_and_C, remove_modes
 from LFASTfiber.libs.libNewport import smc100
 from plotting_interface import plot_processed_surface, plot_psf_from_surface, plot_mirror_cs, plot_surfaces
 
@@ -33,12 +33,10 @@ def main(mirror_num="10", take_new=True, save_date = -1, save_instance = -1, new
 
     Z = General_zernike_matrix(44, int(clear_outer * 1e6), int(clear_inner * 1e6))
 
-    
-
     if True:
     
         if take_new:
-            take_new_measurement(save_subfolder, number_alignment_iterations=5)
+            take_new_measurement(save_subfolder, number_alignment_iterations=7)
         if True:
             surface = load_measurements(save_subfolder, clear_outer, clear_inner, Z)
             updated_surface = surface.copy()
@@ -86,4 +84,5 @@ def main(mirror_num="10", take_new=True, save_date = -1, save_instance = -1, new
 #%%
 
 if __name__ == "__main__":
-    main(20, take_new=True,new_folder=None)
+    main(19, take_new=True,new_folder="afternoon")
+

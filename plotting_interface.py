@@ -13,10 +13,10 @@ def compare_surfaces(before, after, title, Z, OD):
     plot_mirrors_side_by_side(after, before, title, subtitles=['After', 'Before'])
     plot_mirror_and_cs("Delta Surface", delta)
 
-def plot_mirror_cs(mirror_num, surfaces, dates):
+def plot_mirror_cs(mirror_num, surfaces, dates, save_fig=False):
     title = f"Mirror {mirror_num} radially symmetric error"
     output_ref_set = [surface for surface in surfaces if surface is not None]
-    plot_many_mirror_cs(title, output_ref_set, dates, include_reference=None, Z=None, C=None, OD=None)
+    plot_many_mirror_cs(title, output_ref_set, dates, include_reference=None, Z=None, C=None, OD=None, save_fig=save_fig)
 
-def plot_surfaces(mirror_num, surfaces, dates):
-    plot_multiple_surfaces(mirror_num, surfaces, dates)
+def plot_surfaces(mirror_num, surfaces, dates, enforce_symmetric_bounds=False, save_fig=False):
+    plot_multiple_surfaces(mirror_num, surfaces, dates, enforce_symmetric_bounds, save_fig)

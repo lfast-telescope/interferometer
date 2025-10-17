@@ -1,8 +1,8 @@
 import os
 import datetime
 
-from primary_mirror.interferometer_utils import start_alignment
-from primary_mirror.interferometer_utils import take_interferometer_measurements
+from interferometer_utils import start_alignment
+from interferometer_utils import take_interferometer_measurements
 from LFASTfiber.libs.libNewport import smc100
 
 

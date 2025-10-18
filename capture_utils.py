@@ -1,3 +1,8 @@
+"""
+High level utility functions for interfacing with 4D interferoemter
+Including data capture and filepath management
+"""
+
 import os
 import datetime
 

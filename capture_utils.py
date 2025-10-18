@@ -4,12 +4,16 @@ Including data capture and filepath management
 """
 
 import os
+import sys
 import datetime
 
 from interferometer_utils import start_alignment
 from interferometer_utils import take_interferometer_measurements
-from LFASTfiber.libs.libNewport import smc100
-
+try:
+    from LFASTfiber.libs.libNewport import smc100
+except ImportError:
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+    from LFASTfiber.libs.libNewport import smc100
 
 def run_measurement(measurement_folder, s, s_gain, number_measurements=5, num_avg=20, number_alignment_iterations = 3):
     """Take new measurements and save them."""

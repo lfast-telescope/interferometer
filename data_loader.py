@@ -1,7 +1,14 @@
 import os
 import numpy as np
-from primary_mirror.LFAST_TEC_output import measure_h5_circle, format_data_from_avg_circle
-from primary_mirror.LFAST_wavefront_utils import format_data_from_avg_circle
+import sys
+
+try:
+    from primary_mirror.LFAST_TEC_output import measure_h5_circle, format_data_from_avg_circle
+    from primary_mirror.LFAST_wavefront_utils import format_data_from_avg_circle
+except ImportError:
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+    from primary_mirror.LFAST_TEC_output import measure_h5_circle, format_data_from_avg_circle
+    from primary_mirror.LFAST_wavefront_utils import format_data_from_avg_circle
 
 def load_measurements(folder, clear_outer, clear_inner, Z, ID_crop=1.25):
     data_holder, coord_holder, ID_holder = [], [], []

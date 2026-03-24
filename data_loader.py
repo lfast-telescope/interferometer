@@ -49,10 +49,14 @@ def load_multiple_surfaces(shared_path, dates, measurements, clear_outer, clear_
         folder = os.path.join(shared_path, date)
         subfolder = measurements[num] if isinstance(measurements[num], str) else str(measurements[num])
         subfolder_path = os.path.join(folder, subfolder)
-        if os.path.isdir(subfolder_path):
-            if os.path.exists(os.path.join(subfolder_path, 'averaged_surface.npy')):
-                surface = np.load(os.path.join(subfolder_path, 'averaged_surface.npy'))
-            else:
-                surface = load_measurements(subfolder_path, clear_outer, clear_inner, Z, ID_crop)
+        if os.path.isdir(subfolder_path):        
+            surface = load_single_surface(subfolder_path, clear_outer=clear_outer, clear_inner=clear_inner, Z=Z, ID_crop=ID_crop)
             surfaces.append(surface)
     return surfaces
+
+def load_single_surface(subfolder_path, filename='averaged_surface.npy', clear_outer=None, clear_inner=None, Z=None, ID_crop=1.25):
+    if os.path.exists(os.path.join(subfolder_path, filename)):
+        surface = np.load(os.path.join(subfolder_path, filename))
+    else:
+        surface = load_measurements(subfolder_path, clear_outer, clear_inner, Z, ID_crop)
+    return surface

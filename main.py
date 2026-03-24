@@ -46,7 +46,7 @@ def main(mirror_num="10", take_new=True, save_date = -1, save_instance = -1, new
         if take_new:
             take_new_measurement(save_subfolder, number_alignment_iterations=7)
         if True:
-            surface = load_measurements(save_subfolder, clear_outer, clear_inner, Z)
+            surface = load_single_surface(save_subfolder, clear_outer=clear_outer, clear_inner=clear_inner, Z=Z)
             updated_surface = surface.copy()
 
             coefs = [[0,1,2,4], [0,1,2,4], [0, 1, 2, 3, 4, 5, 6, 9, 10, 14, 15, 20, 21, 27, 28, 35, 36, 44], [0, 1, 2, 3, 4, 5, 6, 9, 10, 14, 15, 20, 21, 27, 28, 35, 36, 44]]

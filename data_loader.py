@@ -24,7 +24,16 @@ def load_measurements(folder, clear_outer, clear_inner, Z, ID_crop=1.25):
         format_data_from_avg_circle(data, avg_circle, clear_outer, clear_inner*ID_crop, Z, normal_tip_tilt_power=True)[1]
         for data in data_holder
     ]
-    surface = np.flip(np.mean(wf_maps, 0), 0)
+    if False:
+        surface = np.flip(np.mean(wf_maps, 0), 1)
+        #DELTADELTA I CHANGED THE FLIP AXIS FROM 0->1 AFTER LOOKING AT TEC TRAINING DATA
+    else:
+        surface = np.mean(wf_maps, 0)
+    
+    if False:
+        import matplotlib.pyplot as plt
+        plt.imshow(surface)
+        plt.show()
 
     np.save(os.path.join(folder, 'averaged_surface.npy'), surface)
     return surface

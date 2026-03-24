@@ -16,14 +16,34 @@ import time
 import requests
 import datetime
 import numpy as np
+import sys
+
+# Add paths for imports
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+
 try:
     # Try relative import (when run as part of package)
-    from .surface_processing import import_4D_map_auto, import_4D_map_auto, import_cropped_4D_map, measure_h5_circle, format_data_from_avg_circle#, process_wavefront_error
+    from .surface_processing import import_4D_map_auto, import_cropped_4D_map, measure_h5_circle, format_data_from_avg_circle, prepare_surface
     from .config import get_mirror_params
+    from .data_loader import load_single_surface
+    from .plotting_interface import plot_processed_surface, plot_psf_from_surface, plot_mirror_cs
 except ImportError:
     # Fall back to absolute import (when run directly)
-    from surface_processing import import_4D_map_auto, import_4D_map_auto, import_cropped_4D_map, measure_h5_circle, format_data_from_avg_circle#, process_wavefront_error
+    from surface_processing import import_4D_map_auto, import_cropped_4D_map, measure_h5_circle, format_data_from_avg_circle, prepare_surface
     from config import get_mirror_params
+    from data_loader import load_single_surface
+    from plotting_interface import plot_processed_surface, plot_psf_from_surface, plot_mirror_cs
+
+from shared.General_zernike_matrix import General_zernike_matrix
+
+try:
+    from LFASTfiber.libs.libNewport import smc100
+    from LFASTfiber.libs import libThorlabs
+except ImportError:
+    print("Warning: LFASTfiber libraries not found. Cannot control hardware.")
+    smc100 = None
+    libThorlabs = None
 
 def take_interferometer_measurements(path, num_avg=10, onboard_averaging=True, savefile=None):
     """

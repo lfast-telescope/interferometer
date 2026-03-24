@@ -20,7 +20,8 @@ MIRROR_CONFIG = {
     "1": {"coated": True},
     "9": {"coated": False},
     "10": {"coated": True},
-    "19": {"coated": False}
+    "19": {"coated": False},
+    "22": {"coated": True}
     # Add others if needed
 }
 

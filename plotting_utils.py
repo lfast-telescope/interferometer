@@ -25,9 +25,11 @@ def plot_mirror_wf_error(avg_ref,title,contour_interval=0,cmap_range = 0):
     plt.xlabel('nm',x=1.15)
     plt.ylabel(str(int(np.mean(np.diff(contour_levels)))) + 'nm contours')
     
-def plot_mirror_and_psf(title,output_ref,output_foc,throughput,x,y, bounds = None, foc_scale = None):
+def plot_mirror_and_psf(title,output_ref,output_foc,throughput,x,y, bounds = None, foc_scale = None, fig=None, axs=None):
+    standalone = fig is None
     output_foc = np.log10(output_foc)
-    fig,axs = plt.subplots(1,2,width_ratios=[1,1],constrained_layout=True)
+    if standalone:
+        fig,axs = plt.subplots(1,2,width_ratios=[1,1],constrained_layout=True)
     plot_ref = output_ref.copy()*1000
     vals = plot_ref[~np.isnan(plot_ref)]
     rms = np.sqrt(np.sum(np.power(vals,2))/len(vals))
@@ -63,10 +65,15 @@ def plot_mirror_and_psf(title,output_ref,output_foc,throughput,x,y, bounds = Non
     axs[1].add_artist(patch)
     
     fig.suptitle(title + ' has ' + str(int(rms)) + 'nm rms wavefront error and ' + str(int(throughput*100)) + '% efficiency',y=0.85, size='medium')
-    plt.show()
+    if standalone:
+        plt.show()
+    return fig, axs
 
-def plot_single_mirror(title,output_ref,include_rms=False, save_path = None):
-    fig,axs = plt.subplots()
+def plot_single_mirror(title,output_ref,include_rms=False, save_path = None, fig=None, ax=None):
+    standalone = fig is None
+    if standalone:
+        fig, ax = plt.subplots()
+    axs = ax
     plot_ref = output_ref.copy()*1000
     vals = plot_ref[~np.isnan(plot_ref)]
     rms = np.sqrt(np.sum(np.power(vals,2))/len(vals))
@@ -91,10 +98,14 @@ def plot_single_mirror(title,output_ref,include_rms=False, save_path = None):
 
     if not save_path is None:
         fig.savefig(save_path)
-    plt.show()
+    if standalone:
+        plt.show()
+    return fig, axs
 
-def plot_mirror_and_cs(title,output_ref,include_reference = None,Z=None,C=None,OD=None):
-    fig,axs = plt.subplots(1,2,width_ratios=[1,1],constrained_layout=True)
+def plot_mirror_and_cs(title,output_ref,include_reference = None,Z=None,C=None,OD=None, fig=None, axs=None):
+    standalone = fig is None
+    if standalone:
+        fig,axs = plt.subplots(1,2,width_ratios=[1,1],constrained_layout=True)
     plot_ref = output_ref.copy()*1000
     vals = plot_ref[~np.isnan(plot_ref)]
     rms = np.sqrt(np.sum(np.power(vals,2))/len(vals))
@@ -148,10 +159,16 @@ def plot_mirror_and_cs(title,output_ref,include_reference = None,Z=None,C=None,O
     title_x = 0.55
     title_y = 0.9
     fig.suptitle(title,x=title_x,y=title_y)
-    plt.show()
+    if standalone:
+        plt.show()
+    return fig, axs
 
-def plot_many_mirror_cs(title,output_ref_set,name_set,include_reference = None,Z=None,C=None, OD=None):
-    fig,axs = plt.subplots(1,1,width_ratios=[1],constrained_layout=True)
+def plot_many_mirror_cs(title,output_ref_set,name_set,include_reference = None,Z=None,C=None, OD=None, save_fig=False, fig=None, ax=None):
+    standalone = fig is None
+    if standalone:
+        fig,axs = plt.subplots(1,1,width_ratios=[1],constrained_layout=True)
+    else:
+        axs = ax
     
     for num,output_ref in enumerate(output_ref_set):
         plot_ref = output_ref.copy()*1000
@@ -195,9 +212,16 @@ def plot_many_mirror_cs(title,output_ref_set,name_set,include_reference = None,Z
     axs.legend(fontsize='small')
     title_x = 0.55
     title_y = 0.9
-    plt.show()
 
-def plot_mirrors_side_by_side(avg_ref_left, avg_ref_right,title,include_difference_plot = False, include_radial_average = False, subtitles = None, plot_bounds = None):
+    if save_fig:
+        fig.savefig(save_fig)
+
+    if standalone:
+        plt.show()
+    return fig, axs
+
+def plot_mirrors_side_by_side(avg_ref_left, avg_ref_right,title,include_difference_plot = False, include_radial_average = False, subtitles = None, plot_bounds = None, fig=None, axs=None):
+    standalone = fig is None
     #make mirror data for new profile
     plot_ref_new = avg_ref_left.copy()*1000
     vals_new = plot_ref_new[~np.isnan(plot_ref_new)]
@@ -231,10 +255,11 @@ def plot_mirrors_side_by_side(avg_ref_left, avg_ref_right,title,include_differen
     
     #plot figures
     
-    if include_difference_plot or include_radial_average:
-        fig,axs = plt.subplots(1,3,width_ratios=[1,1,1],constrained_layout=True)
-    else:
-        fig,axs = plt.subplots(1,2,width_ratios=[1,1],constrained_layout=True)
+    if standalone:
+        if include_difference_plot or include_radial_average:
+            fig,axs = plt.subplots(1,3,width_ratios=[1,1,1],constrained_layout=True)
+        else:
+            fig,axs = plt.subplots(1,2,width_ratios=[1,1],constrained_layout=True)
 
     pcm_old = axs[0].imshow(plot_ref_new,vmin=left_bound,vmax=right_bound,cmap='viridis')
     axs[0].contour(plot_ref_new,contour_levels,colors='w',linewidths=0.5)
@@ -289,13 +314,22 @@ def plot_mirrors_side_by_side(avg_ref_left, avg_ref_right,title,include_differen
     plt.yticks([])
     
     fig.suptitle(title ,size=12,y=title_y)
-    plt.show()
+    if standalone:
+        plt.show()
+    return fig, axs
 
-def plot_multiple_surfaces(mirror_num, surfaces, dates):
+def plot_multiple_surfaces(mirror_num, surfaces, dates, enforce_symmetric_bounds=False, save_fig=False, fig=None, axs_ext=None):
+    standalone = fig is None
     surfaces = np.multiply(surfaces, 1000)
     vmax = np.nanmax([np.nanmax(surface) for surface in surfaces])
     vmin = np.nanmin([np.nanmin(surface) for surface in surfaces])
-    fig, ax = plt.subplots(1, len(surfaces), figsize=(5*len(surfaces), 5))
+    if enforce_symmetric_bounds:
+        bound = max(abs(vmin), abs(vmax))
+        vmin, vmax = -bound, bound
+    if standalone:
+        fig, ax = plt.subplots(1, len(surfaces), figsize=(5*len(surfaces), 5))
+    else:
+        ax = axs_ext
     im_list = []
     for i, surface in enumerate(surfaces):
         vals = surface[~np.isnan(surface)]
@@ -315,7 +349,11 @@ def plot_multiple_surfaces(mirror_num, surfaces, dates):
     cbar.set_label('Wavefront error (nm)')
     fig.suptitle(f"M{mirror_num} wavefront error during alternate polishing stroke", fontsize=16)
     fig.supxlabel(f"{avg_contour:.0f}nm contours")
-    plt.show()
+    if save_fig:
+        fig.savefig(save_fig)
+    if standalone:
+        plt.show()
+    return fig, ax
 
 def plot_zernike_modes_as_bar_chart(C,C2 = None, num_modes=15,coef_list = [3,5,12,24,40,60,84], labels = ['After','Before']):
     modes = C[2][:num_modes]*1000

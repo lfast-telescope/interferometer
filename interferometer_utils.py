@@ -191,3 +191,160 @@ def return_neighborhood(surface, x_linspace, x_loc, y_loc, neighborhood_size):
     dist = np.sqrt((X - x_loc) ** 2 + (Y - y_loc) ** 2)
     neighborhood = dist < neighborhood_size
     return np.nanmean(surface[neighborhood])  
+
+
+def measure_and_process_surface(mirror_num="10", take_new=True, save_date=-1, 
+                                save_instance=-1, new_folder=None, 
+                                remove_coef=None, plot_results=True,
+                                number_alignment_iterations=5, Z=None):
+    """
+    High-level function to measure and process mirror surface.
+    
+    This function handles the complete workflow of:
+    1. Setting up measurement paths based on mirror configuration
+    2. Taking a new interferometer measurement (optional)
+    3. Loading and processing the surface data
+    4. Applying Zernike mode corrections
+    5. Generating diagnostic plots (optional)
+    
+    Parameters
+    ----------
+    mirror_num : str or int
+        Mirror number/identifier (e.g., "10")
+    take_new : bool
+        If True, take a new measurement. If False, load existing data.
+        Default: True
+    save_date : int
+        Index of date folder to use. -1 = most recent. Only used if take_new=False.
+        Default: -1
+    save_instance : int
+        Index of measurement instance within date folder. -1 = most recent.
+        Only used if take_new=False. Default: -1
+    new_folder : str or None
+        Custom folder name for new measurement. If None, uses timestamp.
+        Default: None
+    remove_coef : list or None
+        List of Zernike mode indices to remove (e.g., [0, 1, 2, 4] for piston/tip/tilt/defocus).
+        If None, uses default: [0, 1, 2, 4]
+        Default: None
+    plot_results : bool
+        If True, generate diagnostic plots (PSF, cross-section).
+        Default: True
+    number_alignment_iterations : int
+        Number of alignment iterations for new measurements.
+        Default: 7
+        
+    Returns
+    -------
+    result : dict
+        Dictionary containing:
+        - 'surface': Raw loaded surface (500x500 array)
+        - 'processed_surface': Processed surface with specified modes removed
+        - 'config': Mirror configuration dictionary
+        - 'save_path': Path where measurement is saved/loaded from
+        - 'Z': Zernike matrix used for processing
+        - 'clear_outer': Outer clear aperture radius (mm)
+        - 'clear_inner': Inner clear aperture radius (mm)
+        - 'remove_coef': Zernike modes that were removed
+            
+    Notes
+    -----
+    - Requires Newport SMC100 library if take_new=True
+    - Generates Zernike matrix up to mode 44
+    - Default removes: piston, tip, tilt, defocus [0, 1, 2, 4]
+    - Plots are shown but not saved by default
+    - For multiple correction levels, call function multiple times with different remove_coef
+    """
+    # Convert mirror_num to string if needed
+    mirror_num = str(mirror_num)
+    
+    # Get mirror configuration
+    config = get_mirror_params(mirror_num)
+    clear_outer, clear_inner = config["OD"], config["ID"]
+    
+    # Setup paths
+    mirror_path = config["base_path"]
+    os.makedirs(mirror_path, exist_ok=True)
+    
+    save_subfolder = setup_paths(mirror_path, take_new, save_date, save_instance, new_folder)
+    
+    # Create Zernike matrix
+    if Z is None:
+        Z = General_zernike_matrix(44, int(clear_outer * 1e6), int(clear_inner * 1e6))
+    
+    # Take new measurement if requested
+    if take_new:
+        print(f"Taking new measurement for Mirror {mirror_num}...")
+        print(f"  Save location: {save_subfolder}")
+        take_new_measurement(save_subfolder, number_alignment_iterations=number_alignment_iterations)
+    
+    # Load surface data
+    surface = load_single_surface(save_subfolder, clear_outer=clear_outer, clear_inner=clear_inner, Z=Z)
+    
+    # Define correction modes - single set only
+    if remove_coef is None:
+        remove_coef = [0, 1, 2, 4]  # Default: piston/tip/tilt/defocus
+    
+    # Process surface with specified correction   
+    processed_surface = prepare_surface(surface, Z, remove_coef, config, crop_ca=False)
+    
+    # Generate plots if requested
+    if plot_results:
+        plot_psf_from_surface(processed_surface, Z, f"N{mirror_num}", config)
+        plot_mirror_cs(mirror_num, [processed_surface], [datetime.datetime.now().strftime('%Y%m%d')])
+    
+    # Compile results
+    result = {
+        'surface': surface,
+        'processed_surface': processed_surface,
+        'config': config,
+        'save_path': save_subfolder,
+        'Z': Z,
+        'clear_outer': clear_outer,
+        'clear_inner': clear_inner,
+        'mirror_num': mirror_num,
+        'remove_coef': remove_coef
+    }
+    
+    return result
+
+def run_measurement(measurement_folder, s, s_gain, number_measurements=5, num_avg=20, number_alignment_iterations = 3):
+    """Take new measurements and save them."""
+    start_alignment(number_alignment_iterations, num_avg, s, s_gain)
+    for i in range(number_measurements):
+        take_interferometer_measurements(measurement_folder, num_avg=num_avg, onboard_averaging=True, savefile=str(i))
+
+def take_new_measurement(save_subfolder, number_alignment_iterations=3):
+    """Take a new measurement and save it to the folder."""
+    if smc100 is None:
+        raise RuntimeError("Cannot take new measurement without Newport SMC100 library")
+    s = smc100('COM3', nchannels=3)
+    run_measurement(save_subfolder, s, s_gain=0.5, number_alignment_iterations=number_alignment_iterations)
+    s.close()
+
+def setup_paths(mirror_path, take_new, save_date, save_instance, new_folder=None):
+    """Handle logic for save/load folder paths."""
+    if take_new or len(os.listdir(mirror_path)) == 0:
+        folder = datetime.datetime.now().strftime('%Y%m%d')
+        if new_folder is not None:
+            folder = folder + '_' + new_folder
+        save_path = os.path.join(mirror_path, folder) + '/'
+        os.makedirs(save_path, exist_ok=True)
+
+        measurement_number = len(os.listdir(save_path))
+        save_subfolder = save_path + str(measurement_number) + '/'
+        os.makedirs(save_subfolder, exist_ok=True)
+
+    else:
+        folder_list = sorted([f for f in os.listdir(mirror_path) if f.isnumeric()])
+        folder = folder_list[save_date] if isinstance(save_date, int) else save_date
+        if new_folder is not None:
+            folder = folder + '_' + new_folder
+
+        save_path = os.path.join(mirror_path, folder)
+
+        subfolder_list = sorted([f for f in os.listdir(save_path) if f.isnumeric()])
+        instance = subfolder_list[save_instance] if isinstance(save_instance, int) else save_instance
+        save_subfolder = os.path.join(save_path, instance)
+
+    return save_subfolder

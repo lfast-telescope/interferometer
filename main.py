@@ -49,13 +49,18 @@ def main(mirror_num="10", take_new=True, save_date = -1, save_instance = -1, new
             surface = load_measurements(save_subfolder, clear_outer, clear_inner, Z)
             updated_surface = surface.copy()
 
-            coefs = [[0,1,2,4], [0,1,2,4,12,24,40], [0, 1, 2, 3, 4, 5, 6, 9, 10, 14, 15, 20, 21, 27, 28, 35, 36, 44]]
-            coef_names = ['uncorrected', 'sph corrected', 'trefoil corrected']
+            coefs = [[0,1,2,4], [0,1,2,4], [0, 1, 2, 3, 4, 5, 6, 9, 10, 14, 15, 20, 21, 27, 28, 35, 36, 44], [0, 1, 2, 3, 4, 5, 6, 9, 10, 14, 15, 20, 21, 27, 28, 35, 36, 44]]
+            coef_names = ['uncorrected', 'sph corrected', 'edge corrected','all modes removed']
             coef_dict = dict(zip([tuple(c) for c in coefs],coef_names))
 
             for coefs_tuple, name in coef_dict.items():
+                crop_ca=False
                 remove_coef = list(coefs_tuple)
-                updated_surface = prepare_surface(surface, Z, remove_coef, config, crop_ca = True)
+                if name in ("sph corrected", "all modes removed"):
+                    updated_surface = prepare_surface(surface - radial_averaged_surface(surface,config), Z, remove_coef, config, crop_ca=crop_ca)
+                else:
+                    updated_surface = prepare_surface(surface, Z, remove_coef, config, crop_ca = crop_ca)
+                plot_processed_surface(updated_surface, Z, f"N{mirror_num} ({new_folder})", config)
                 plot_psf_from_surface(updated_surface, Z, f"N{mirror_num}" +' (' + name + ')', config)
                 plot_mirror_cs(mirror_num, [updated_surface], [datetime.datetime.now().strftime('%Y%m%d')])
 

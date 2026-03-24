@@ -9,6 +9,8 @@ from matplotlib import cm
 from matplotlib.widgets import EllipseSelector
 from scipy import interpolate
 from scipy.optimize import minimize
+from scipy.ndimage import gaussian_filter
+from hcipy import make_pupil_grid, radial_profile, Field
 
 # Add the parent directory to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -453,6 +455,12 @@ def format_data_from_avg_circle(data,circle_coord, clear_aperture_outer, clear_a
     #This doesn't fix inconsistent user crops, but should clean up the difference data.
 
     #clear_aperture_inner = 0
+    if Z is None:
+        print("Warning: No Z matrix provided to format_data_from_avg_circle")
+        print("Importing Z now; this will take much longer than necessary")
+        from shared.General_zernike_matrix import General_zernike_matrix
+        Z = General_zernike_matrix(500, clear_aperture_outer*2, 500)
+
     set_nans_to_zero = False
 
     clear_aperture_radius = clear_aperture_outer  # Mirror radius that is not covered by TEC
@@ -545,3 +553,31 @@ def initial_crop(img,ksize):
     distance = np.sqrt(np.sum([np.power(x-OD_circle[0],2), np.power(y-OD_circle[1],2)],0))
     img[distance > OD_circle[2]] = np.max(img)
     return img
+
+def radial_averaged_surface(plot_ref, config):
+    grid = make_pupil_grid(plot_ref.shape, diameter=config["OD"])
+    vals_field = Field(plot_ref.ravel(),grid)
+    cs = radial_profile(vals_field,0.005)
+    grid_distances = np.sqrt(grid.x**2 + grid.y**2)
+    radial_field = Field(plot_ref.ravel()*np.nan,grid)
+    for i, dist in enumerate(cs[0]):
+        if i==0:
+            valid_distances = np.where(grid_distances<=dist)
+        else:
+            valid_distances = np.where((grid_distances<=dist) * (grid_distances>cs[0][i-1]))
+        radial_field[valid_distances] = cs[1][i]
+
+    radial_avg = np.reshape(radial_field,plot_ref.shape)
+    nan_mask = np.isnan(radial_avg)
+    image_zeroed = np.where(nan_mask, 0, radial_avg)
+
+    mask = (~nan_mask).astype(float)
+
+    sigma = 3
+    v_filtered = gaussian_filter(image_zeroed, sigma=sigma, mode='constant', cval=0)
+    w_filtered = gaussian_filter(mask, sigma=sigma, mode='constant', cval=0)
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        radial_output = v_filtered / w_filtered
+
+    return radial_output

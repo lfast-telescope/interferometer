@@ -154,26 +154,9 @@ class MeasurementTab(QWidget):
         self._worker.error.connect(self._on_measurement_error)
         self._worker.start()
 
-    # -------------------------------------------------------- load saved
-    def _load_saved(self):
-        if self._worker is not None and self._worker.isRunning():
-            QMessageBox.warning(self, "Busy", "A task is already running.")
-            return
-
-        self._set_busy(True)
-        self._worker = LoadSurfaceWorker(
-            mirror_num=self.mirror_spin.value(),
-            save_date=self.date_spin.value(),
-            save_instance=self.instance_spin.value(),
-            new_folder=self._new_folder_or_none(),
-        )
-        self._worker.progress.connect(self._log)
-        self._worker.finished.connect(self._on_measurement_done)
-        self._worker.error.connect(self._on_measurement_error)
-        self._worker.start()
-
-    # -------------------------------------------------------- load .npy
-    def _load_npy_file(self):
+    # -------------------------------------------------------- load last
+    def _load_last(self):
+        """Load the most recently created averaged_surface.npy for this mirror."""
         import re
         import numpy as np
         import sys, os
@@ -182,6 +165,67 @@ class MeasurementTab(QWidget):
         from interferometer.config import get_mirror_params
         from shared.General_zernike_matrix import General_zernike_matrix
 
+        mirror_num = str(self.mirror_spin.value())
+        try:
+            config = get_mirror_params(mirror_num)
+            base_path = config['base_path']
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"Could not get mirror config: {exc}")
+            return
+
+        # Find most recent YYYYMMDD folder
+        try:
+            date_dirs = sorted([
+                d for d in os.listdir(base_path)
+                if os.path.isdir(os.path.join(base_path, d)) and d.isdigit() and len(d) == 8
+            ])
+            if not date_dirs:
+                QMessageBox.warning(self, "Not Found", f"No date folders found in:\n{base_path}")
+                return
+            latest_date_path = os.path.join(base_path, date_dirs[-1])
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"Could not scan mirror folder: {exc}")
+            return
+
+        # Find most recently created averaged_surface.npy anywhere under that date folder
+        candidates = []
+        for dirpath, _dirs, files in os.walk(latest_date_path):
+            if 'averaged_surface.npy' in files:
+                full = os.path.join(dirpath, 'averaged_surface.npy')
+                candidates.append((os.path.getctime(full), full))
+
+        if not candidates:
+            QMessageBox.warning(self, "Not Found",
+                                f"No averaged_surface.npy found under:\n{latest_date_path}")
+            return
+
+        candidates.sort(reverse=True)
+        npy_path = candidates[0][1]
+
+        try:
+            surface = np.load(npy_path)
+            OD, ID = config['OD'], config['ID']
+            clear_outer, clear_inner = 0.5 * OD, 0.5 * ID
+            Z = General_zernike_matrix(44, int(clear_outer * 1e6), int(clear_inner * 1e6))
+            result = {
+                'surface': surface,
+                'config': config,
+                'save_path': os.path.dirname(npy_path),
+                'Z': Z,
+                'clear_outer': clear_outer,
+                'clear_inner': clear_inner,
+                'mirror_num': mirror_num,
+            }
+            self._log(f"Loaded: {npy_path}")
+            self._deliver_result(result)
+        except Exception as exc:
+            QMessageBox.critical(self, "Load Error", str(exc))
+
+    # -------------------------------------------------------- load measurement
+    def _load_measurement(self):
+        """Load either a .npy file directly or process legacy .h5 files from a folder."""
+        import os
+        
         path, _ = QFileDialog.getOpenFileName(
             self, "Open Measurement File",
             r"C:\Users\lfast-admin\Documents\mirrors",

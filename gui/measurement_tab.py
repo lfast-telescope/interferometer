@@ -183,9 +183,29 @@ class MeasurementTab(QWidget):
         from shared.General_zernike_matrix import General_zernike_matrix
 
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open .npy surface file", "", "NumPy files (*.npy)")
+            self, "Open Measurement File",
+            r"C:\Users\lfast-admin\Documents\mirrors",
+            "Measurement files (*.npy *.h5)")
         if not path:
             return
+
+        # Dispatch based on file extension
+        if path.lower().endswith('.npy'):
+            self._load_npy_file_impl(path)
+        elif path.lower().endswith('.h5'):
+            self._load_h5_files_from_folder(path)
+        else:
+            QMessageBox.warning(self, "Invalid File", "File must be .npy or .h5")
+
+    def _load_npy_file_impl(self, path):
+        """Load a .npy file directly."""
+        import re
+        import numpy as np
+        import sys, os
+        sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+        sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
+        from interferometer.config import get_mirror_params
+        from shared.General_zernike_matrix import General_zernike_matrix
 
         try:
             # Auto-detect mirror number from path (e.g. \M23\ or /M4/)
@@ -215,6 +235,70 @@ class MeasurementTab(QWidget):
             self._deliver_result(result)
         except Exception as exc:
             QMessageBox.critical(self, "Load Error", str(exc))
+
+    def _load_h5_files_from_folder(self, h5_path):
+        """Load and process all .h5 files in the folder containing the selected .h5 file."""
+        import re
+        import os
+        import numpy as np
+        import sys
+        sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+        sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
+        from interferometer.config import get_mirror_params
+        from interferometer.data_loader import load_measurements
+        from shared.General_zernike_matrix import General_zernike_matrix
+
+        try:
+            # Extract folder from selected .h5 file
+            folder = os.path.dirname(h5_path)
+            
+            # Auto-detect mirror number from path
+            match = re.search(r'[\\/]M(\d+)[\\/]', h5_path)
+            if match:
+                detected_num = int(match.group(1))
+                self.mirror_spin.setValue(detected_num)
+                self._log(f"Auto-detected Mirror #{detected_num} from path")
+            
+            mirror_num = str(self.mirror_spin.value())
+            config = get_mirror_params(mirror_num)
+            OD, ID = config["OD"], config["ID"]
+            clear_outer, clear_inner = 0.5 * OD, 0.5 * ID
+            
+            # Check if .h5 files exist in folder
+            h5_files = [f for f in os.listdir(folder) if f.endswith('.h5')]
+            if not h5_files:
+                QMessageBox.warning(self, "No .h5 Files", 
+                                  f"No .h5 files found in:\n{folder}")
+                return
+            
+            self._log(f"Processing {len(h5_files)} .h5 file(s)...")
+            
+            # Generate Zernike matrix
+            Z = General_zernike_matrix(44, int(clear_outer * 1e6),
+                                       int(clear_inner * 1e6))
+            
+            # Load and process all .h5 files (uses circle averaging internally)
+            surface = load_measurements(folder, clear_outer, clear_inner, Z)
+            
+            result = {
+                'surface': surface,
+                'config': config,
+                'save_path': folder,
+                'Z': Z,
+                'clear_outer': clear_outer,
+                'clear_inner': clear_inner,
+                'mirror_num': mirror_num,
+            }
+            
+            # Confirm that averaged_surface.npy was auto-saved
+            npy_path = os.path.join(folder, 'averaged_surface.npy')
+            if os.path.exists(npy_path):
+                self._log(f"Auto-saved averaged surface to: {npy_path}")
+            
+            self._log(f"Successfully processed {len(h5_files)} .h5 files")
+            self._deliver_result(result)
+        except Exception as exc:
+            QMessageBox.critical(self, "Load Error", f"Error processing .h5 files:\n{str(exc)}")
 
     # -------------------------------------------------------- callbacks
     def _on_measurement_done(self, result):

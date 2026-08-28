@@ -18,6 +18,8 @@ class MeasurementTab(QWidget):
     # This signal-like callback is set by the main window so the
     # results tab can be notified when a surface is ready.
     on_surface_ready = None   # callable(result_dict, slot_index)
+    # Called with the mirror number when "Take New Measurement" succeeds.
+    on_take_new_done = None   # callable(mirror_num: int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -44,30 +46,24 @@ class MeasurementTab(QWidget):
         self.align_spin.setValue(7)
         pg.addWidget(self.align_spin, 1, 1)
 
-        pg.addWidget(QLabel("New folder label:"), 2, 0)
+        pg.addWidget(QLabel("Number average frames:"), 2, 0)
+        self.num_avg_spin = QSpinBox()
+        self.num_avg_spin.setRange(1, 100)
+        self.num_avg_spin.setValue(20)
+        pg.addWidget(self.num_avg_spin, 2, 1)
+
+        pg.addWidget(QLabel("Number save files:"), 3, 0)
+        self.number_output_maps_spin = QSpinBox()
+        self.number_output_maps_spin.setRange(1, 100)
+        self.number_output_maps_spin.setValue(5)
+        pg.addWidget(self.number_output_maps_spin, 3, 1)
+
+        pg.addWidget(QLabel("New folder label:"), 4, 0)
         self.folder_edit = QLineEdit()
         self.folder_edit.setPlaceholderText("(optional, e.g. sanity_check)")
         pg.addWidget(self.folder_edit, 4, 1)
 
         root.addWidget(params_box)
-
-        # --- Advanced / load options ---
-        adv_box = QGroupBox("Load Options  (used when loading saved data)")
-        ag = QGridLayout(adv_box)
-
-        ag.addWidget(QLabel("save_date index:"), 0, 0)
-        self.date_spin = QSpinBox()
-        self.date_spin.setRange(-99, 999)
-        self.date_spin.setValue(-1)
-        ag.addWidget(self.date_spin, 0, 1)
-
-        ag.addWidget(QLabel("save_instance index:"), 1, 0)
-        self.instance_spin = QSpinBox()
-        self.instance_spin.setRange(-99, 999)
-        self.instance_spin.setValue(-1)
-        ag.addWidget(self.instance_spin, 1, 1)
-
-        root.addWidget(adv_box)
 
         # --- Action buttons ---
         btn_row = QHBoxLayout()
@@ -141,7 +137,7 @@ class MeasurementTab(QWidget):
     def _set_busy(self, busy):
         self.take_new_btn.setEnabled(not busy)
         self.load_btn.setEnabled(not busy)
-        self.load_npy_btn.setEnabled(not busy)
+        self.load_measurement_btn.setEnabled(not busy)
         self.progress_bar.setVisible(busy)
 
     def _log(self, msg):
@@ -370,6 +366,8 @@ class MeasurementTab(QWidget):
     # -------------------------------------------------------- callbacks
     def _on_measurement_done(self, result):
         self._set_busy(False)
+        if self.on_take_new_done is not None:
+            self.on_take_new_done(self.mirror_spin.value())
         self._deliver_result(result)
 
     def _on_measurement_error(self, tb):

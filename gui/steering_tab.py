@@ -2,9 +2,14 @@
 Beam Steering tab — manual jog control for the SMC100 stages.
 """
 
+
 import io
 import sys
 import contextlib
+import logging
+
+# Setup logging for QThread warnings and exceptions
+logging.basicConfig(filename="error_log.txt", level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox,
@@ -44,6 +49,7 @@ class _JogWorker(QThread):
         self.channel = channel
 
     def run(self):
+        logging.info(f"_JogWorker thread started (step={self.step}, channel={self.channel})")
         stream = _SignalStream(self.stdout_line.emit)
         try:
             old_stdout = sys.stdout
@@ -53,8 +59,10 @@ class _JogWorker(QThread):
             stream.flush()
         except Exception as exc:
             sys.stdout = old_stdout
+            logging.exception("Exception in _JogWorker thread")
             self.error.emit(str(exc))
         finally:
+            logging.info("_JogWorker thread finished")
             self.finished.emit()
 
 
@@ -71,6 +79,7 @@ class _GoToWorker(QThread):
         self.channel = channel
 
     def run(self):
+        logging.info(f"_GoToWorker thread started (pos={self.pos}, channel={self.channel})")
         stream = _SignalStream(self.stdout_line.emit)
         try:
             old_stdout = sys.stdout
@@ -80,8 +89,10 @@ class _GoToWorker(QThread):
             stream.flush()
         except Exception as exc:
             sys.stdout = old_stdout
+            logging.exception("Exception in _GoToWorker thread")
             self.error.emit(str(exc))
         finally:
+            logging.info("_GoToWorker thread finished")
             self.finished.emit()
 
 
@@ -97,17 +108,21 @@ class _ResetWorker(QThread):
         self.channel = channel
 
     def run(self):
+        logging.info(f"_ResetWorker thread started (channel={self.channel})")
         stream = _SignalStream(self.stdout_line.emit)
         try:
             old_stdout = sys.stdout
             sys.stdout = stream
             self.smc.resetController(channel=self.channel)
+            self.smc.homeController(channel=self.channel)
             sys.stdout = old_stdout
             stream.flush()
         except Exception as exc:
             sys.stdout = old_stdout
+            logging.exception("Exception in _ResetWorker thread")
             self.error.emit(str(exc))
         finally:
+            logging.info("_ResetWorker thread finished")
             self.finished.emit()
 
 
@@ -269,11 +284,23 @@ class SteeringTab(QWidget):
         self._log("Disconnected")
 
     def _jog(self, channel, direction):
+        import logging
         if self.smc is None:
             return
         step = self.step_spin.value() * direction
         self._set_jog_enabled(False)
         self._jog_channel = channel
+        # Check for existing worker
+        if hasattr(self, '_jog_worker') and self._jog_worker is not None:
+            if self._jog_worker.isRunning():
+                logging.warning("Attempted to start new _JogWorker while previous is still running (channel=%s)", channel)
+                self._log("Jog thread still running, ignoring new request.")
+                self._set_jog_enabled(True)
+                return
+            else:
+                logging.info("Deleting old _JogWorker (channel=%s)", channel)
+                self._jog_worker = None
+        logging.info("Creating new _JogWorker (step=%s, channel=%s)", step, channel)
         self._jog_worker = _JogWorker(self.smc, step, channel)
         self._jog_worker.stdout_line.connect(self._on_jog_stdout)
         self._jog_worker.error.connect(lambda msg: self._log(f"Jog error: {msg}"))
@@ -300,11 +327,13 @@ class SteeringTab(QWidget):
                     lbl.setText(f"{raw_pos}  |  {state}")
 
     def _on_jog_finished(self):
-        """Re-enable controls after move completes."""
+        import logging
+        logging.info("_JogWorker thread finished")
         self._jog_worker = None
         self._set_jog_enabled(True)
 
     def _go_to(self, channel):
+        import logging
         if self.smc is None:
             return
         text = self.goto_edits[channel - 1].text().strip()
@@ -315,6 +344,17 @@ class SteeringTab(QWidget):
             return
         self._set_jog_enabled(False)
         self._goto_channel = channel
+        # Check for existing worker
+        if hasattr(self, '_goto_worker') and self._goto_worker is not None:
+            if self._goto_worker.isRunning():
+                logging.warning("Attempted to start new _GoToWorker while previous is still running (channel=%s)", channel)
+                self._log("GoTo thread still running, ignoring new request.")
+                self._set_jog_enabled(True)
+                return
+            else:
+                logging.info("Deleting old _GoToWorker (channel=%s)", channel)
+                self._goto_worker = None
+        logging.info("Creating new _GoToWorker (pos=%s, channel=%s)", pos, channel)
         self._goto_worker = _GoToWorker(self.smc, pos, channel)
         self._goto_worker.stdout_line.connect(self._on_goto_stdout)
         self._goto_worker.error.connect(lambda msg: self._log(f"GoTo error: {msg}"))
@@ -339,14 +379,28 @@ class SteeringTab(QWidget):
                     lbl.setText(f"{raw_pos}  |  {state}")
 
     def _on_goto_finished(self):
+        import logging
+        logging.info("_GoToWorker thread finished")
         self._goto_worker = None
         self._set_jog_enabled(True)
 
     def _reset_controller(self):
+        import logging
         if self.smc is None:
             return
         ch = int(self.reset_ch_spin.value())
         self._set_jog_enabled(False)
+        # Check for existing worker
+        if hasattr(self, '_reset_worker') and self._reset_worker is not None:
+            if self._reset_worker.isRunning():
+                logging.warning("Attempted to start new _ResetWorker while previous is still running (channel=%s)", ch)
+                self._log("Reset thread still running, ignoring new request.")
+                self._set_jog_enabled(True)
+                return
+            else:
+                logging.info("Deleting old _ResetWorker (channel=%s)", ch)
+                self._reset_worker = None
+        logging.info("Creating new _ResetWorker (channel=%s)", ch)
         self._reset_worker = _ResetWorker(self.smc, ch)
         self._reset_worker.stdout_line.connect(self._on_reset_stdout)
         self._reset_worker.error.connect(lambda msg: self._log(f"Reset error: {msg}"))
@@ -357,6 +411,8 @@ class SteeringTab(QWidget):
         self._log(line)
 
     def _on_reset_finished(self):
+        import logging
+        logging.info("_ResetWorker thread finished")
         self._reset_worker = None
         self._update_positions()
         self._set_jog_enabled(True)

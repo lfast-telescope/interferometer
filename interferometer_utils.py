@@ -17,6 +17,7 @@ import requests
 import datetime
 import numpy as np
 import sys
+import re
 
 # Add paths for imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -79,14 +80,41 @@ def take_interferometer_measurements(path, num_avg=10, onboard_averaging=True, s
         print(str(round(time.time()-tic,3)), ' seconds to measure, analyze + save')
 
 def take_interferometer_coefficients(num_avg=10):
-    current_time = datetime.datetime.now().strftime('%H%M%S')
-    savefile = current_time
     payload = {"analysis": "zernikeresidual", "count": str(num_avg), "useNAN": 'false'}
-    meas = requests.get('http://localhost/WebService4D/WebService4D.asmx/AverageMeasure', params=payload)
-    sav = requests.get('http://localhost/WebService4D/WebService4D.asmx/GetZernikeCoeff', params=payload)
-    output = sav.content.decode('utf-8')
+    requests.get('http://localhost/WebService4D/WebService4D.asmx/AverageMeasure', params=payload, timeout=30)
+    sav = requests.get('http://localhost/WebService4D/WebService4D.asmx/GetZernikeCoeff', params=payload, timeout=30)
+
+    if sav.status_code != 200:
+        raise RuntimeError(f"GetZernikeCoeff failed with HTTP {sav.status_code}")
+
+    output = sav.content.decode('utf-8', errors='replace').strip()
+
+    # IIS errors can return full HTML pages; fail early with a useful message.
+    if '<html' in output.lower() or 'http error' in output.lower():
+        error_code_match = re.search(r'Error Code</th><td[^>]*>&nbsp;&nbsp;&nbsp;([^<]+)</td>', output, flags=re.IGNORECASE)
+        config_error_match = re.search(r'Config Error</th><td[^>]*>&nbsp;&nbsp;&nbsp;([^<]+)</td>', output, flags=re.IGNORECASE)
+        error_code = error_code_match.group(1).strip() if error_code_match else 'unknown'
+        config_error = config_error_match.group(1).strip() if config_error_match else 'unknown'
+        raise RuntimeError(
+            "WebService4D returned IIS error page while requesting Zernike coefficients "
+            f"(error_code={error_code}, config_error={config_error})"
+        )
+
+    # 4Sight returns <string>timeout</string> when WebServices is not active in 4Sight.
+    if re.search(r'<string[^>]*>\s*timeout\s*</string>', output, flags=re.IGNORECASE):
+        raise RuntimeError(
+            "WebService4D returned 'timeout' — 4Sight is not serving measurements. "
+            "Please open 4Sight, go to Tools > Start Web Services and ensure the service is enabled."
+        )
+
+    if 'output/' not in output or '</string>' not in output:
+        snippet = output[:300].replace('\n', ' ')
+        raise RuntimeError(f"Unexpected GetZernikeCoeff response format: {snippet}")
+
     first_split = output.split('output/')[-1]
-    filename = first_split.split('</string>')[0]
+    filename = first_split.split('</string>')[0].strip()
+    if not filename:
+        raise RuntimeError("GetZernikeCoeff returned an empty output filename")
     return filename
 
 def correct_tip_tilt_power(zernikes,s,gain):
@@ -98,10 +126,14 @@ def correct_tip_tilt_power(zernikes,s,gain):
     delta_tip = gain * 0.175 * zernikes[1] / 20
     delta_power = -gain * 2 * zernikes[3] / 4.1
 
-    if True:
-        s.setPositionRel(delta_tilt, channel=1)
-        s.setPositionRel(delta_tip, channel=2)
-        s.setPositionRel(delta_power, channel=3)
+    error_threshold = 4
+    if (zernikes[1] < error_threshold) and (zernikes[2] < error_threshold) and (zernikes[3] < error_threshold*2):
+        if True:
+            s.setPositionRel(delta_tilt, channel=1)
+            s.setPositionRel(delta_tip, channel=2)
+            s.setPositionRel(delta_power, channel=3)
+    else:
+        print('Invalid coefficient detected! Apply 4D analysis mask or align closer')
 
 def hold_alignment(duration, number_frames_avg, s, s_gain):
     tic = time.time()
@@ -115,8 +147,15 @@ def hold_alignment(duration, number_frames_avg, s, s_gain):
 def start_alignment(iterations, number_frames_avg, s, s_gain):
     for i in range(iterations):
         coef_filename = take_interferometer_coefficients(number_frames_avg)
-        coef_file = "C:/inetpub/wwwroot/output/" + coef_filename
+        coef_file = os.path.join("C:/inetpub/wwwroot/output", coef_filename)
+        if not os.path.exists(coef_file):
+            raise FileNotFoundError(
+                f"Zernike coefficient file not found: {coef_file}. "
+                "WebService4D may have failed to save output."
+            )
         zernikes = np.fromfile(coef_file, dtype=np.dtype('d'))
+        if len(zernikes) < 4:
+            raise RuntimeError(f"Zernike coefficient file is malformed or empty: {coef_file}")
         correct_tip_tilt_power(zernikes, s, s_gain)
         time.sleep(1)
 
@@ -314,21 +353,24 @@ def run_measurement(measurement_folder, s, s_gain, number_measurements=5, num_av
     for i in range(number_measurements):
         take_interferometer_measurements(measurement_folder, num_avg=num_avg, onboard_averaging=True, savefile=str(i))
 
-def take_new_measurement(save_subfolder, number_alignment_iterations=3):
+def take_new_measurement(save_subfolder, number_alignment_iterations=3, num_avg=20, number_measurements=5):
     """Take a new measurement and save it to the folder."""
     if smc100 is None:
         raise RuntimeError("Cannot take new measurement without Newport SMC100 library")
     s = smc100('COM3', nchannels=3)
-    run_measurement(save_subfolder, s, s_gain=0.5, number_alignment_iterations=number_alignment_iterations)
+    run_measurement(save_subfolder, s, s_gain=0.5, number_measurements=number_measurements, num_avg=num_avg, number_alignment_iterations=number_alignment_iterations)
     s.close()
 
 def setup_paths(mirror_path, take_new, save_date, save_instance, new_folder=None):
     """Handle logic for save/load folder paths."""
     if take_new or len(os.listdir(mirror_path)) == 0:
-        folder = datetime.datetime.now().strftime('%Y%m%d')
+        date_folder = datetime.datetime.now().strftime('%Y%m%d')
+        date_path = os.path.join(mirror_path, date_folder)
+        os.makedirs(date_path, exist_ok=True)
         if new_folder is not None:
-            folder = folder + '_' + new_folder
-        save_path = os.path.join(mirror_path, folder) + '/'
+            save_path = os.path.join(date_path, new_folder) + '/'
+        else:
+            save_path = date_path + '/'
         os.makedirs(save_path, exist_ok=True)
 
         measurement_number = len(os.listdir(save_path))
@@ -338,10 +380,11 @@ def setup_paths(mirror_path, take_new, save_date, save_instance, new_folder=None
     else:
         folder_list = sorted([f for f in os.listdir(mirror_path) if f.isnumeric()])
         folder = folder_list[save_date] if isinstance(save_date, int) else save_date
+        date_path = os.path.join(mirror_path, folder)
         if new_folder is not None:
-            folder = folder + '_' + new_folder
-
-        save_path = os.path.join(mirror_path, folder)
+            save_path = os.path.join(date_path, new_folder)
+        else:
+            save_path = date_path
 
         subfolder_list = sorted([f for f in os.listdir(save_path) if f.isnumeric()])
         instance = subfolder_list[save_instance] if isinstance(save_instance, int) else save_instance

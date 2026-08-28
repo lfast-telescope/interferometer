@@ -7,6 +7,7 @@ import sys, os
 import numpy as np
 import matplotlib.gridspec as gridspec
 import matplotlib.patches as mpatches
+from datetime import datetime
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
@@ -192,9 +193,11 @@ class ResultsTab(QWidget):
     def set_surface(self, result_dict, slot_index):
         """Called by MeasurementTab when a surface is ready."""
         self._data[slot_index] = result_dict
+        ts = self._get_timestamp(result_dict)
+        ts_part = f"  |  {ts}" if ts else ''
         label_text = (
             f"Slot {'A' if slot_index == 0 else 'B'}: "
-            f"M{result_dict['mirror_num']}  —  {result_dict['save_path']}"
+            f"M{result_dict['mirror_num']}  —  {result_dict['save_path']}{ts_part}"
         )
         if slot_index == 0:
             self.slot_a_label.setText(label_text)
@@ -275,7 +278,20 @@ class ResultsTab(QWidget):
             self._process(i)
 
         for i in range(2):
-            self._plot_slot(i)
+            widget = self.plot_a if i == 0 else self.plot_b
+            label = self.slot_a_label if i == 0 else self.slot_b_label
+            try:
+                self._plot_slot(i)
+            except Exception as e:
+                import traceback
+                err_text = traceback.format_exc()
+                print(f"[results_tab] _plot_slot({i}) error:\n{err_text}")
+                # Redraw blank canvas so it doesn't show stale content
+                widget.draw()
+                # Show error in the slot label so it's visible in the UI
+                current_text = label.text()
+                base = current_text.split(" [ERR]")[0]
+                label.setText(f"{base} [ERR: {e}]")
 
         # Auto-update comparison only if it was previously activated
         if self._compare_active:
@@ -297,6 +313,8 @@ class ResultsTab(QWidget):
         vals = plot_ref[~np.isnan(plot_ref)]
         vmin, vmax, contour_levels = compute_cmap_and_contour(vals) if len(vals) > 0 else (None, None, None)
         rms = np.sqrt(np.mean(vals**2)) if len(vals) > 0 else 0
+        pv = (np.nanpercentile(vals, 99) - np.nanpercentile(vals, 1)) if len(vals) > 0 else 0
+        pv_label = f"PV = {pv:.0f} nm"
 
         show_cs = self.cs_chk.isChecked()
         show_psf = self.psf_chk.isChecked()
@@ -324,6 +342,7 @@ class ResultsTab(QWidget):
             widget.fig.colorbar(pcm, cax=cax, label='nm')
             ax.set_title(f"{mirror_name}  {rms:.0f} nm rms")
             ax.set_xticks([]); ax.set_yticks([])
+            ax.set_xlabel(pv_label, fontsize=9)
         else:
             # Equal-width columns for each panel
             gs = gridspec.GridSpec(1, n_panels, figure=widget.fig,
@@ -338,6 +357,7 @@ class ResultsTab(QWidget):
             widget.fig.colorbar(pcm, ax=ax_surf, shrink=0.7, label='nm')
             ax_surf.set_title(f"{mirror_name}  {rms:.0f} nm rms")
             ax_surf.set_xticks([]); ax_surf.set_yticks([])
+            ax_surf.set_xlabel(pv_label, fontsize=9)
             col += 1
 
             # -- Cross-section panel --
@@ -348,6 +368,7 @@ class ResultsTab(QWidget):
                     f"{mirror_name} radial",
                     [surface], ["surface"],
                     fig=widget.fig, ax=ax_cs)
+                # ax_cs.axhline(0, color='k', linestyle='--', linewidth=0.8, alpha=0.4)
                 col += 1
 
             # -- PSF panel --
@@ -357,6 +378,15 @@ class ResultsTab(QWidget):
                 col += 1
 
         widget.draw()
+
+    def _get_timestamp(self, data):
+        """Return formatted creation timestamp of averaged_surface.npy, or empty string."""
+        try:
+            npy_path = os.path.join(data['save_path'], 'averaged_surface.npy')
+            ts = datetime.fromtimestamp(os.path.getctime(npy_path))
+            return ts.strftime('%m/%d %I:%M %p')
+        except Exception:
+            return ''
 
     def _render_psf(self, surface, data, fig, ax, rms):
         """Compute and render the PSF into a single axis."""
@@ -425,9 +455,14 @@ class ResultsTab(QWidget):
         ax3 = self.plot_compare.fig.add_subplot(gs[0, 2])
         cax = self.plot_compare.fig.add_subplot(gs[0, 3])
 
+        ts_a = self._get_timestamp(da)
+        ts_b = self._get_timestamp(db)
+        label_a = f"M{da['mirror_num']} (A: {ts_a})" if ts_a else f"M{da['mirror_num']} (A)"
+        label_b = f"M{db['mirror_num']} (B: {ts_b})" if ts_b else f"M{db['mirror_num']} (B)"
+
         for ax, surf, label in [
-            (ax1, sa, f"M{da['mirror_num']} (A)"),
-            (ax2, sb, f"M{db['mirror_num']} (B)"),
+            (ax1, sa, label_a),
+            (ax2, sb, label_b),
             (ax3, delta, "Δ (A−B)"),
         ]:
             plot_nm = surf.copy() * 1000
@@ -449,6 +484,7 @@ class ResultsTab(QWidget):
                 [sa, sb, delta],
                 [f"A (M{da['mirror_num']})", f"B (M{db['mirror_num']})", "Δ (A−B)"],
                 fig=self.plot_compare.fig, ax=ax_cs)
+            ax_cs.axhline(0, color='k', linestyle='--', linewidth=0.8, alpha=0.4)
 
         self.plot_compare.fig.suptitle(
             f"Comparison: M{da['mirror_num']} (A) vs M{db['mirror_num']} (B)",

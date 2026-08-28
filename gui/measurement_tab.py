@@ -34,8 +34,8 @@ class MeasurementTab(QWidget):
 
         pg.addWidget(QLabel("Mirror #:"), 0, 0)
         self.mirror_spin = QSpinBox()
-        self.mirror_spin.setRange(1, 99)
-        self.mirror_spin.setValue(22)
+        self.mirror_spin.setRange(0, 99)
+        self.mirror_spin.setValue(0)
         pg.addWidget(self.mirror_spin, 0, 1)
 
         pg.addWidget(QLabel("Alignment iterations:"), 1, 0)
@@ -47,7 +47,7 @@ class MeasurementTab(QWidget):
         pg.addWidget(QLabel("New folder label:"), 2, 0)
         self.folder_edit = QLineEdit()
         self.folder_edit.setPlaceholderText("(optional, e.g. sanity_check)")
-        pg.addWidget(self.folder_edit, 2, 1)
+        pg.addWidget(self.folder_edit, 4, 1)
 
         root.addWidget(params_box)
 
@@ -76,13 +76,13 @@ class MeasurementTab(QWidget):
         self.take_new_btn.clicked.connect(self._take_new)
         btn_row.addWidget(self.take_new_btn)
 
-        self.load_btn = QPushButton("Load Saved Measurement")
-        self.load_btn.clicked.connect(self._load_saved)
+        self.load_btn = QPushButton("Load Last Measurement")
+        self.load_btn.clicked.connect(self._load_last)
         btn_row.addWidget(self.load_btn)
 
-        self.load_npy_btn = QPushButton("Load .npy File…")
-        self.load_npy_btn.clicked.connect(self._load_npy_file)
-        btn_row.addWidget(self.load_npy_btn)
+        self.load_measurement_btn = QPushButton("Load Measurement…")
+        self.load_measurement_btn.clicked.connect(self._load_measurement)
+        btn_row.addWidget(self.load_measurement_btn)
 
         root.addLayout(btn_row)
 
@@ -116,6 +116,19 @@ class MeasurementTab(QWidget):
         root.addStretch()
 
     # -------------------------------------------------------------- helpers
+    def _prompt_mirror_number(self):
+        """Prompt user to enter a mirror number. Returns (ok, num) tuple."""
+        from PyQt5.QtWidgets import QInputDialog
+        num, ok = QInputDialog.getInt(
+            self,
+            "Mirror Number Required",
+            "Enter mirror number (1-99):",
+            value=1,
+            min=1,
+            max=99
+        )
+        return ok, num
+
     def _select_slot(self, idx):
         self._active_slot = idx
         self.slot_a_btn.setChecked(idx == 0)
@@ -140,14 +153,24 @@ class MeasurementTab(QWidget):
             QMessageBox.warning(self, "Busy", "A measurement is already running.")
             return
 
+        mirror_num = self.mirror_spin.value()
+        if mirror_num == 0:
+            ok, num = self._prompt_mirror_number()
+            if not ok:
+                return
+            mirror_num = num
+            self.mirror_spin.setValue(mirror_num)
+
         self._set_busy(True)
         self._worker = MeasurementWorker(
-            mirror_num=self.mirror_spin.value(),
+            mirror_num=mirror_num,
             take_new=True,
-            save_date=self.date_spin.value(),
-            save_instance=self.instance_spin.value(),
+            save_date=-1,
+            save_instance=-1,
             new_folder=self._new_folder_or_none(),
             number_alignment_iterations=self.align_spin.value(),
+            num_avg=self.num_avg_spin.value(),
+            number_measurements=self.number_output_maps_spin.value(),
         )
         self._worker.progress.connect(self._log)
         self._worker.finished.connect(self._on_measurement_done)

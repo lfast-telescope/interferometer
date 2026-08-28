@@ -15,14 +15,24 @@ from hcipy import make_pupil_grid, radial_profile, Field
 # Add the parent directory to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from shared.zernike_utils import get_M_and_C, remove_modes, Zernike_decomposition
+from shared.zernike_utils import get_M_and_C, remove_modes, Zernike_decomposition, radially_symmetric_indices
 
-def prepare_surface(surface, Z, remove_coef, config, crop_ca = True):
+def prepare_surface(surface, Z, remove_coef, config, crop_ca = True, high_freq_removed = False):
     M, C = get_M_and_C(surface, Z)
 
     OD = config["OD"]
 
-    updated_surface = remove_modes(M, C, Z, remove_coef)
+    if high_freq_removed:
+        # Radially symmetric (m=0) modes are dropped from the finite Zernike fit and
+        # sourced from the true radial average instead, which captures radial content
+        # (e.g. spherical, secondary spherical) beyond what Z's finite basis can fit.
+        radial_idx = radially_symmetric_indices(Z[0].shape[-1])
+        fit_no_radial = remove_modes((C[0], C[1]), C, Z, sorted(set(radial_idx) | set(remove_coef)))
+        radial_full = radial_averaged_surface(surface, config)
+        radial_component = remove_modes((radial_full.flatten(), radial_full), C, Z, remove_coef)
+        updated_surface = fit_no_radial + radial_component
+    else:
+        updated_surface = remove_modes(M, C, Z, remove_coef)
 
     if crop_ca:
         X, Y = np.meshgrid(np.linspace(-OD/2, OD/2, surface.shape[0]),

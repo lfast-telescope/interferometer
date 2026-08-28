@@ -81,6 +81,7 @@ COEF_PRESETS = {
     'sph corrected': [0, 1, 2, 4],
     'edge corrected': [0, 1, 2, 3, 4, 5, 6, 9, 10, 14, 15, 20, 21, 27, 28, 35, 36, 44],
     'all modes removed': [0, 1, 2, 3, 4, 5, 6, 9, 10, 14, 15, 20, 21, 27, 28, 35, 36, 44],
+    'high frequencies removed': [0, 1, 2, 4],
 }
 
 
@@ -219,8 +220,10 @@ class ResultsTab(QWidget):
         if preset_name in ('sph corrected', 'all modes removed'):
             # Subtract radial average first, then remove Zernike modes
             surface = surface - radial_averaged_surface(surface, data['config'])
+        high_freq_removed = preset_name == 'high frequencies removed'
         processed = prepare_surface(
-            surface, data['Z'], coefs, data['config'], crop_ca=crop)
+            surface, data['Z'], coefs, data['config'], crop_ca=crop,
+            high_freq_removed=high_freq_removed)
         self._processed[slot_index] = processed
 
     def _on_options_changed(self, _=None):

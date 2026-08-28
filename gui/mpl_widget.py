@@ -7,6 +7,18 @@ from matplotlib.figure import Figure
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
 
+class _LargerCoordsToolbar(NavigationToolbar2QT):
+    """NavigationToolbar with 30% larger coordinate readout font."""
+
+    def __init__(self, canvas, parent):
+        super().__init__(canvas, parent)
+        # locLabel is the QLabel that shows cursor coordinates
+        if hasattr(self, 'locLabel'):
+            font = self.locLabel.font()
+            font.setPointSizeF(font.pointSizeF() * 1.3)
+            self.locLabel.setFont(font)
+
+
 class MplCanvas(FigureCanvasQTAgg):
     """A thin wrapper around FigureCanvasQTAgg that creates its own Figure."""
 
@@ -29,7 +41,7 @@ class MplWidget(QWidget):
     def __init__(self, parent=None, width=8, height=5):
         super().__init__(parent)
         self.canvas = MplCanvas(self, width=width, height=height)
-        self.toolbar = NavigationToolbar2QT(self.canvas, self)
+        self.toolbar = _LargerCoordsToolbar(self.canvas, self)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)

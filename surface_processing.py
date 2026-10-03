@@ -46,7 +46,7 @@ def prepare_surface(surface, Z, remove_coef, config, crop_ca = True, high_freq_r
 def import_4D_map(filename,Z): #import measured surface from 4D h5 file. input is (filename, Zernike matrix)
     
     f = h5py.File(filename,'r')
-    data = np.array(list(f['measurement0']['genraw']['data']))
+    data = f['measurement0']['genraw']['data'][()]
     
     invalid = np.nanmax(data)
     data[data == invalid] = np.nan #remove invalid values
@@ -146,7 +146,7 @@ def import_4D_map_auto(filename,Z,normal_tip_tilt_power=True,remove_coef = []):
     pixel_OD = 15*25.4*1e3 #original value: 381000. Changed from 381000 on 8/15/2024
     
     f = h5py.File(filename,'r')
-    data = np.array(list(f['measurement0']['genraw']['data']))
+    data = f['measurement0']['genraw']['data'][()]
 
     invalid = np.nanmax(data)
     
@@ -241,7 +241,7 @@ def import_cropped_4D_map(filename, Z, normal_tip_tilt_power=True, remove_coef=[
     pixel_ID = 1.8 * 25.4 * 1e3 #Coated ID
 
     f = h5py.File(filename, 'r')
-    data = np.array(list(f['measurement0']['genraw']['data']))
+    data = f['measurement0']['genraw']['data'][()]
 
     invalid = np.nanmax(data)
 
@@ -341,7 +341,7 @@ def measure_h5_circle(filename, use_optimizer=False):
     #In another function, apply the average coordinates to every measurement
 
     f = h5py.File(filename, 'r')
-    data = np.array(list(f['measurement0']['genraw']['data']))
+    data = f['measurement0']['genraw']['data'][()]
     f.close()
 
     invalid = np.nanmax(data)
@@ -405,59 +405,105 @@ def measure_h5_circle(filename, use_optimizer=False):
     return data, circle_coord, ID
 
 def continuous_pupil_merit_function(xyr, thresh_image, inside_pupil_weight=1, outside_pupil_weight = 1):
-    negative_image = np.subtract(thresh_image.astype(float), np.max(thresh_image.astype(float)))*-1
-    X,Y = np.meshgrid(np.arange(thresh_image.shape[0]),np.arange(thresh_image.shape[1]))
-    proposed_pupil = np.sqrt(np.square(X-xyr[0]) + np.square(Y-xyr[1])) < xyr[2]
-    spots_inside_pupil = np.sum(thresh_image[proposed_pupil]).astype(float)
-    spots_outside_pupil = np.sum(thresh_image[~proposed_pupil]).astype(float)
-    spaces_inside_pupil = np.sum(negative_image[proposed_pupil]).astype(float)
-    spaces_outside_pupil = np.sum(negative_image[~proposed_pupil]).astype(float)
+    if False:
+        negative_image = np.subtract(thresh_image.astype(float), np.max(thresh_image.astype(float)))*-1
+        X,Y = np.meshgrid(np.arange(thresh_image.shape[0]),np.arange(thresh_image.shape[1]))
+        proposed_pupil = np.sqrt(np.square(X-xyr[0]) + np.square(Y-xyr[1])) < xyr[2]
+        spots_inside_pupil = np.sum(thresh_image[proposed_pupil]).astype(float)
+        spots_outside_pupil = np.sum(thresh_image[~proposed_pupil]).astype(float)
+        spaces_inside_pupil = np.sum(negative_image[proposed_pupil]).astype(float)
+        spaces_outside_pupil = np.sum(negative_image[~proposed_pupil]).astype(float)
 
-    good_pupil = spots_inside_pupil**inside_pupil_weight + spaces_outside_pupil
-    bad_pupil = spots_outside_pupil**outside_pupil_weight + spaces_inside_pupil
+        good_pupil = spots_inside_pupil**inside_pupil_weight + spaces_outside_pupil
+        bad_pupil = spots_outside_pupil**outside_pupil_weight + spaces_inside_pupil
 
-    merit = (bad_pupil - good_pupil)/(np.sum(thresh_image) + np.sum(negative_image))
+        merit = (bad_pupil - good_pupil)/(np.sum(thresh_image) + np.sum(negative_image))
 
-    if False and np.random.rand()<0.1:
-        fig,ax = plt.subplots()
-        ax.imshow(thresh_image)
-        artist = mpatches.Circle(xyr[:2],xyr[-1],fill=False,color='r')
-        ax.add_artist(artist)
-        fig.suptitle(np.round(xyr[-1],3))
-        plt.show()
-    elif False:
-        print(np.round(merit,3))
+        if False and np.random.rand()<0.1:
+            fig,ax = plt.subplots()
+            ax.imshow(thresh_image)
+            artist = mpatches.Circle(xyr[:2],xyr[-1],fill=False,color='r')
+            ax.add_artist(artist)
+            fig.suptitle(np.round(xyr[-1],3))
+            plt.show()
+        elif False:
+            print(np.round(merit,3))
+
+        return merit
+
+    # Vectorized merit function using 1D broadcasting and squared distance
+    H, W = thresh_image.shape
+    Y_grid, X_grid = np.ogrid[:H, :W]
+    dist_sq = (X_grid - xyr[0])**2 + (Y_grid - xyr[1])**2
+    proposed_pupil = dist_sq < (xyr[2]**2)
+
+    total_pixels = float(H * W)
+    spots_inside = np.sum(thresh_image[proposed_pupil])
+    area_inside = np.count_nonzero(proposed_pupil)
+    total_valid = np.sum(thresh_image)
+
+    if inside_pupil_weight == 1 and outside_pupil_weight == 1:
+        const_diff = float(2.0 * total_valid - total_pixels)
+        merit = (2.0 * (area_inside - 2.0 * spots_inside) + const_diff) / total_pixels
+    else:
+        spots_outside = total_valid - spots_inside
+        spaces_inside = area_inside - spots_inside
+        spaces_outside = (total_pixels - total_valid) - spaces_inside
+        good_pupil = (spots_inside ** inside_pupil_weight) + spaces_outside
+        bad_pupil = (spots_outside ** outside_pupil_weight) + spaces_inside
+        merit = (bad_pupil - good_pupil) / total_pixels
 
     return merit
 
 def define_pupil_using_optimization(data_image):
-    thresh_image = data_image.copy()
-    thresh_image[~np.isnan(thresh_image)] = 1
-    thresh_image[np.isnan(thresh_image)] = 0
-    xyr = [int(thresh_image.shape[0]/2), int(thresh_image.shape[1]/2), int(np.max(thresh_image.shape)/4)]
-    res = minimize(continuous_pupil_merit_function, xyr, args=thresh_image, method='Nelder-Mead')
+    if False:
+        thresh_image = data_image.copy()
+        thresh_image[~np.isnan(thresh_image)] = 1
+        thresh_image[np.isnan(thresh_image)] = 0
+        xyr = [int(thresh_image.shape[0]/2), int(thresh_image.shape[1]/2), int(np.max(thresh_image.shape)/4)]
+        res = minimize(continuous_pupil_merit_function, xyr, args=thresh_image, method='Nelder-Mead')
+        return res.x
+
+    # Vectorized Nelder-Mead: precompute coordinate grids and image sums once
+    thresh_image = np.where(~np.isnan(data_image), 1.0, 0.0)
+    H, W = thresh_image.shape
+    Y_grid, X_grid = np.ogrid[:H, :W]
+    total_valid = np.sum(thresh_image)
+    total_pixels = float(H * W)
+    const_diff = float(2.0 * total_valid - total_pixels)
+
+    def vectorized_merit(xyr):
+        dist_sq = (X_grid - xyr[0])**2 + (Y_grid - xyr[1])**2
+        mask = dist_sq < (xyr[2]**2)
+        s_in = np.sum(thresh_image[mask])
+        a = np.count_nonzero(mask)
+        return (2.0 * (a - 2.0 * s_in) + const_diff) / total_pixels
+
+    xyr = [int(H / 2), int(W / 2), int(max(H, W) / 4)]
+    res = minimize(vectorized_merit, xyr, method='Nelder-Mead')
     return res.x
 
 
-def define_ID(data, circle_coord, ID_threshold=0.99):
-    #Address inconsistent measurements near ID by cropping out the noisy region
-
+def define_ID(data, circle_coord, clear_inner=0.0762, clear_outer=0.35814, ID_threshold=0.99):
+    # Address inconsistent measurements near ID by masking out the central obscuration region
+    # using fixed CAD geometric masking: pix_ID_radius = int(round(clear_inner / (2.0 * clear_outer) * 500))
     x = circle_coord[0]
     y = circle_coord[1]
-    r = circle_coord[2]
+    r = circle_coord[2] if len(circle_coord) > 2 else None
 
     xi = np.arange(0, data.shape[1])
     yi = np.arange(0, data.shape[0])
     X, Y = np.meshgrid(xi, yi)
     distance_from_center = np.sqrt((X - x) ** 2 + (Y - y) ** 2)
-    invalid_data = np.isnan(data)
-    pix_within_aperture = distance_from_center < (r/2)
-    invalid_ID = invalid_data * pix_within_aperture
-    invalid_distances = distance_from_center * invalid_ID
-    sorted_invalid_distances = np.sort(invalid_distances[np.nonzero(invalid_distances)].ravel())
-    threshold_distance = sorted_invalid_distances[int(len(sorted_invalid_distances) * ID_threshold)]
+
+    # Fixed CAD geometric masking
+    if r is not None and r > 0 and abs(2.0 * r - 500.0) > 1e-3:
+        pix_ID_radius = int(round(clear_inner / (2.0 * clear_outer) * (2.0 * r)))
+    else:
+        pix_ID_radius = int(round(clear_inner / (2.0 * clear_outer) * 500))
+
     data_copy = data.copy()
-    data_copy[distance_from_center < threshold_distance] = np.nan
+    data_copy[distance_from_center < pix_ID_radius] = np.nan
     return data_copy
 
 def format_data_from_avg_circle(data,circle_coord, clear_aperture_outer, clear_aperture_inner, Z, normal_tip_tilt_power=True, remove_coef=[]):
@@ -478,7 +524,7 @@ def format_data_from_avg_circle(data,circle_coord, clear_aperture_outer, clear_a
     pixel_ID = clear_aperture_inner #Coated ID
 
     if clear_aperture_inner > 1e-6:
-        data = define_ID(data, circle_coord)
+        data = define_ID(data, circle_coord, clear_inner=clear_aperture_inner, clear_outer=clear_aperture_outer)
 
     x = circle_coord[0]
     y = circle_coord[1]
@@ -500,7 +546,7 @@ def format_data_from_avg_circle(data,circle_coord, clear_aperture_outer, clear_a
         plt.imshow(data_crop)
         plt.show()
 
-    zs_cropped = np.flip(data_crop, axis=0)  # /2 #cropped image, perform parity flip
+    zs_cropped = data_crop.copy()  # cropped image (ad-hoc vertical flip removed)
 
     #Define grid that the measurement is using
     xs = np.linspace(-clear_aperture_radius, clear_aperture_radius, len(zs_cropped[0]))
@@ -522,8 +568,7 @@ def format_data_from_avg_circle(data,circle_coord, clear_aperture_outer, clear_a
         tck, fp, ier, msg = interpolate.bisplrep(xs[coord[1]], ys[coord[0]], data_crop[~np.isnan(data_crop)],
                                                  full_output=1)
         zs_filled = interpolate.bisplev(xs, ys, tck)
-        zs_flip = np.flip(zs_filled, axis=0) #This interpolation is creating a parity change, apparently, so fix it
-        zs_cropped_copy[np.isnan(zs_cropped_copy)] = zs_flip[np.isnan(zs_cropped_copy)]
+        zs_cropped_copy[np.isnan(zs_cropped_copy)] = zs_filled[np.isnan(zs_cropped_copy)]
 
     Z_int = interpolate.RectBivariateSpline(ys, xs, zs_cropped_copy)
     zi = Z_int(Y, X, grid=False)  # truncate to clear aperture radius

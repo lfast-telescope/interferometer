@@ -353,10 +353,13 @@ class MeasurementTab(QWidget):
                 'mirror_num': mirror_num,
             }
             
-            # Confirm that averaged_surface.npy was auto-saved
+            # Confirm that averaged_surface.npy and averaged_surface.png were auto-saved
             npy_path = os.path.join(folder, 'averaged_surface.npy')
             if os.path.exists(npy_path):
                 self._log(f"Auto-saved averaged surface to: {npy_path}")
+            png_path = os.path.join(folder, 'averaged_surface.png')
+            if os.path.exists(png_path):
+                self._log(f"Auto-saved surface image to: {png_path}")
             
             self._log(f"Successfully processed {len(h5_files)} .h5 files")
             self._deliver_result(result)

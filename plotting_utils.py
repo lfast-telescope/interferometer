@@ -435,3 +435,91 @@ def create_xy_cs(surface):
     x_cs = surface[x_mid,:]
     y_cs = surface[:,y_mid]
     return x_cs, y_cs
+
+def save_surface_plot(surface, folder, filename='averaged_surface.png', mirror_name=None, date=None, context=None):
+    """
+    Save a .png plot of the mirror surface in the measurement folder.
+    Includes title containing mirror name (N prefix), date, and any context text from .h5 files,
+    colorbar, and PV wavefront error as xlabel.
+    """
+    import os
+    import re
+    import matplotlib.pyplot as plt
+
+    # Extract mirror name if not provided (converting M{num} -> N{num})
+    if mirror_name is None:
+        parts = os.path.normpath(folder).split(os.sep)
+        m_found = None
+        for p in parts:
+            m = re.match(r'^M(\d+)$', p, re.I)
+            if m:
+                m_found = f"N{m.group(1)}"
+                break
+            elif re.match(r'^M_.*$', p, re.I):
+                m_found = p
+                break
+        mirror_name = m_found or "Mirror"
+    else:
+        # Ensure 'N' prefix for numeric mirror names
+        m = re.match(r'^M(\d+)$', str(mirror_name), re.I)
+        if m:
+            mirror_name = f"N{m.group(1)}"
+
+    # Extract date if not provided (8 digits YYYYMMDD)
+    if date is None:
+        d_match = re.search(r'(\d{8})', folder)
+        date = d_match.group(1) if d_match else ""
+
+    # Extract context text from .h5 files if not provided
+    if context is None:
+        try:
+            h5_files = [f for f in os.listdir(folder) if f.endswith('.h5')]
+            if h5_files:
+                sample_file = h5_files[0]
+                tec_match = re.search(r'tec(\d+)_cmd([-\d]+)', sample_file, re.I)
+                if tec_match:
+                    tec_num = tec_match.group(1)
+                    cmd_raw = tec_match.group(2)
+                    if cmd_raw.startswith('-'):
+                        cmd_val = '-' + cmd_raw[1:].replace('-', '.')
+                    else:
+                        cmd_val = cmd_raw.replace('-', '.')
+                    context = f"TEC{tec_num}: {cmd_val}"
+                else:
+                    desc_match = re.match(r'^([a-zA-Z_]+)_\d+\.h5$', sample_file)
+                    if desc_match and desc_match.group(1).lower() not in ['data', 'measurement', 'frame', 'img']:
+                        context = desc_match.group(1).replace('_', ' ').title()
+        except Exception:
+            context = ""
+
+    title_parts = [mirror_name]
+    if date:
+        title_parts.append(str(date))
+    if context:
+        title_parts.append(str(context))
+
+    title = " - ".join(title_parts)
+
+    plot_ref = surface.copy() * 1000.0  # convert from um to nm
+    vals = plot_ref[~np.isnan(plot_ref)]
+    pv = float(np.nanmax(vals) - np.nanmin(vals)) if len(vals) > 0 else 0.0
+
+    left_bound, right_bound, contour_levels = compute_cmap_and_contour(vals) if len(vals) > 0 else (None, None, None)
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    pcm = ax.imshow(plot_ref, vmin=left_bound, vmax=right_bound, cmap='viridis')
+    if contour_levels is not None and len(contour_levels) > 0:
+        ax.contour(plot_ref, contour_levels, colors='w', linewidths=0.5)
+
+    cbar = fig.colorbar(pcm, ax=ax, shrink=0.85, pad=0.04)
+    cbar.set_label('Wavefront Error (nm)', fontsize=10)
+
+    ax.set_title(title, fontsize=12)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xlabel(f"PV Wavefront Error: {pv:.1f} nm", fontsize=10)
+
+    save_path = os.path.join(folder, filename)
+    fig.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    return save_path

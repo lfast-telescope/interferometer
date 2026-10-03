@@ -12,6 +12,10 @@ DEFAULTS = {
     "uncoated": {
         "OD": 32 * in_to_m,
         "ID": 3 * in_to_m,
+    },
+    "testplate": {
+        "OD": 16 * in_to_m,
+        "ID": 0
     }
 }
 
@@ -21,7 +25,8 @@ MIRROR_CONFIG = {
     "9": {"coated": False},
     "10": {"coated": True},
     "19": {"coated": False},
-    "22": {"coated": True}
+    "22": {"coated": True},
+    "99": {"coated": True} 
     # Add others if needed
 }
 
@@ -30,7 +35,10 @@ import os
 def get_mirror_params(mirror_num):
     """Generate mirror configuration including OD, ID, and path."""
     coated = MIRROR_CONFIG.get(mirror_num, {}).get("coated", False)
-    coating_key = "coated" if coated else "uncoated"
+    if mirror_num == '99':
+        coating_key = "testplate"
+    else:
+        coating_key = "coated" if coated else "uncoated"
     defaults = DEFAULTS[coating_key]
 
     base_dir = INTERFEROMETER_MIRROR_DATA_DIR

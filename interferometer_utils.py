@@ -18,6 +18,7 @@ import datetime
 import numpy as np
 import sys
 import re
+import warnings
 
 # Add paths for imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -63,11 +64,20 @@ def take_interferometer_measurements(path, num_avg=10, onboard_averaging=True, s
     if savefile is None:
         savefile = current_time
     
+    # Scale timeout with num_avg so larger averages aren't cut off, but never hang indefinitely.
+    request_timeout = max(30, num_avg * 3)
+
     if onboard_averaging:
         tic = time.time()
         payload = {"analysis": "analyzed", "fileName": path + savefile, "count": str(num_avg)}
-        meas = requests.get('http://localhost/WebService4D/WebService4D.asmx/AverageMeasure', params=payload)
-        sav = requests.get('http://localhost/WebService4D/WebService4D.asmx/SaveArray', params=payload)
+        try:
+            meas = requests.get('http://localhost/WebService4D/WebService4D.asmx/AverageMeasure', params=payload, timeout=request_timeout)
+            sav = requests.get('http://localhost/WebService4D/WebService4D.asmx/SaveArray', params=payload, timeout=request_timeout)
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(
+                f"WebService4D request failed during take_interferometer_measurements: {e}. "
+                "4Sight may not be serving measurements — check Tools > Start Web Services."
+            ) from e
         print(str(round(time.time()-tic,3)), ' seconds to measure, analyze + save')
     else:
         time_folder = path + current_time + '/'
@@ -75,47 +85,75 @@ def take_interferometer_measurements(path, num_avg=10, onboard_averaging=True, s
         tic = time.time()
         for i in np.arange(num_avg):
             payload = {"analysis": "analyzed", "fileName": time_folder + str(i)}
-            meas = requests.get('http://localhost/WebService4D/WebService4D.asmx/Measure', params=payload)
-            sav = requests.get('http://localhost/WebService4D/WebService4D.asmx/SaveArray', params=payload)
+            try:
+                meas = requests.get('http://localhost/WebService4D/WebService4D.asmx/Measure', params=payload, timeout=request_timeout)
+                sav = requests.get('http://localhost/WebService4D/WebService4D.asmx/SaveArray', params=payload, timeout=request_timeout)
+            except requests.exceptions.RequestException as e:
+                raise RuntimeError(
+                    f"WebService4D request failed during take_interferometer_measurements: {e}. "
+                    "4Sight may not be serving measurements — check Tools > Start Web Services."
+                ) from e
         print(str(round(time.time()-tic,3)), ' seconds to measure, analyze + save')
 
-def take_interferometer_coefficients(num_avg=10):
+def take_interferometer_coefficients(num_avg=10, max_retries=2, retry_delay=5):
+    """
+    Retries transient WebService4D 'timeout' / connection failures a few times
+    (with a delay) before raising, since 4Sight can briefly stall under load.
+    """
     payload = {"analysis": "zernikeresidual", "count": str(num_avg), "useNAN": 'false'}
-    requests.get('http://localhost/WebService4D/WebService4D.asmx/AverageMeasure', params=payload, timeout=30)
-    sav = requests.get('http://localhost/WebService4D/WebService4D.asmx/GetZernikeCoeff', params=payload, timeout=30)
 
-    if sav.status_code != 200:
-        raise RuntimeError(f"GetZernikeCoeff failed with HTTP {sav.status_code}")
+    for attempt in range(max_retries + 1):
+        try:
+            requests.get('http://localhost/WebService4D/WebService4D.asmx/AverageMeasure', params=payload, timeout=30)
+            sav = requests.get('http://localhost/WebService4D/WebService4D.asmx/GetZernikeCoeff', params=payload, timeout=30)
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries:
+                print(f"WebService4D request failed ({e}); retrying in {retry_delay}s (attempt {attempt+1}/{max_retries})...")
+                time.sleep(retry_delay)
+                continue
+            raise RuntimeError(f"WebService4D request failed after {max_retries} retries: {e}") from e
 
-    output = sav.content.decode('utf-8', errors='replace').strip()
+        if sav.status_code != 200:
+            if attempt < max_retries:
+                print(f"GetZernikeCoeff HTTP {sav.status_code}; retrying in {retry_delay}s (attempt {attempt+1}/{max_retries})...")
+                time.sleep(retry_delay)
+                continue
+            raise RuntimeError(f"GetZernikeCoeff failed with HTTP {sav.status_code}")
 
-    # IIS errors can return full HTML pages; fail early with a useful message.
-    if '<html' in output.lower() or 'http error' in output.lower():
-        error_code_match = re.search(r'Error Code</th><td[^>]*>&nbsp;&nbsp;&nbsp;([^<]+)</td>', output, flags=re.IGNORECASE)
-        config_error_match = re.search(r'Config Error</th><td[^>]*>&nbsp;&nbsp;&nbsp;([^<]+)</td>', output, flags=re.IGNORECASE)
-        error_code = error_code_match.group(1).strip() if error_code_match else 'unknown'
-        config_error = config_error_match.group(1).strip() if config_error_match else 'unknown'
-        raise RuntimeError(
-            "WebService4D returned IIS error page while requesting Zernike coefficients "
-            f"(error_code={error_code}, config_error={config_error})"
-        )
+        output = sav.content.decode('utf-8', errors='replace').strip()
 
-    # 4Sight returns <string>timeout</string> when WebServices is not active in 4Sight.
-    if re.search(r'<string[^>]*>\s*timeout\s*</string>', output, flags=re.IGNORECASE):
-        raise RuntimeError(
-            "WebService4D returned 'timeout' — 4Sight is not serving measurements. "
-            "Please open 4Sight, go to Tools > Start Web Services and ensure the service is enabled."
-        )
+        # IIS errors can return full HTML pages; fail early with a useful message (not retryable).
+        if '<html' in output.lower() or 'http error' in output.lower():
+            error_code_match = re.search(r'Error Code</th><td[^>]*>&nbsp;&nbsp;&nbsp;([^<]+)</td>', output, flags=re.IGNORECASE)
+            config_error_match = re.search(r'Config Error</th><td[^>]*>&nbsp;&nbsp;&nbsp;([^<]+)</td>', output, flags=re.IGNORECASE)
+            error_code = error_code_match.group(1).strip() if error_code_match else 'unknown'
+            config_error = config_error_match.group(1).strip() if config_error_match else 'unknown'
+            raise RuntimeError(
+                "WebService4D returned IIS error page while requesting Zernike coefficients "
+                f"(error_code={error_code}, config_error={config_error})"
+            )
 
-    if 'output/' not in output or '</string>' not in output:
-        snippet = output[:300].replace('\n', ' ')
-        raise RuntimeError(f"Unexpected GetZernikeCoeff response format: {snippet}")
+        # 4Sight returns <string>timeout</string> when WebServices is not active/ready in 4Sight.
+        # This is often transient (4Sight busy/stalled), so retry before giving up.
+        if re.search(r'<string[^>]*>\s*timeout\s*</string>', output, flags=re.IGNORECASE):
+            if attempt < max_retries:
+                print(f"4Sight returned 'timeout' (attempt {attempt+1}/{max_retries}); retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+                continue
+            raise RuntimeError(
+                "WebService4D returned 'timeout' — 4Sight is not serving measurements. "
+                "Please open 4Sight, go to Tools > Start Web Services and ensure the service is enabled."
+            )
 
-    first_split = output.split('output/')[-1]
-    filename = first_split.split('</string>')[0].strip()
-    if not filename:
-        raise RuntimeError("GetZernikeCoeff returned an empty output filename")
-    return filename
+        if 'output/' not in output or '</string>' not in output:
+            snippet = output[:300].replace('\n', ' ')
+            raise RuntimeError(f"Unexpected GetZernikeCoeff response format: {snippet}")
+
+        first_split = output.split('output/')[-1]
+        filename = first_split.split('</string>')[0].strip()
+        if not filename:
+            raise RuntimeError("GetZernikeCoeff returned an empty output filename")
+        return filename
 
 def correct_tip_tilt_power(zernikes,s,gain):
     print('Tilt: ' + str(zernikes[2]))
@@ -145,19 +183,33 @@ def hold_alignment(duration, number_frames_avg, s, s_gain):
         time.sleep(10)
 
 def start_alignment(iterations, number_frames_avg, s, s_gain):
+    # Individual iterations can fail transiently (4Sight stalls); only abort the whole
+    # call if every iteration fails, so a single blip doesn't kill a long-running caller.
+    failures = 0
     for i in range(iterations):
-        coef_filename = take_interferometer_coefficients(number_frames_avg)
-        coef_file = os.path.join("C:/inetpub/wwwroot/output", coef_filename)
-        if not os.path.exists(coef_file):
-            raise FileNotFoundError(
-                f"Zernike coefficient file not found: {coef_file}. "
-                "WebService4D may have failed to save output."
-            )
-        zernikes = np.fromfile(coef_file, dtype=np.dtype('d'))
-        if len(zernikes) < 4:
-            raise RuntimeError(f"Zernike coefficient file is malformed or empty: {coef_file}")
-        correct_tip_tilt_power(zernikes, s, s_gain)
+        try:
+            coef_filename = take_interferometer_coefficients(number_frames_avg)
+            coef_file = os.path.join("C:/inetpub/wwwroot/output", coef_filename)
+            if not os.path.exists(coef_file):
+                raise FileNotFoundError(
+                    f"Zernike coefficient file not found: {coef_file}. "
+                    "WebService4D may have failed to save output."
+                )
+            zernikes = np.fromfile(coef_file, dtype=np.dtype('d'))
+            if len(zernikes) < 4:
+                warnings.warn(f"Zernike coefficient file is malformed or empty: {coef_file}")
+            else:
+                correct_tip_tilt_power(zernikes, s, s_gain)
+        except (RuntimeError, FileNotFoundError) as e:
+            failures += 1
+            print(f"Alignment iteration {i+1}/{iterations} failed, skipping: {e}")
         time.sleep(1)
+
+    if failures == iterations:
+        raise RuntimeError(
+            f"All {iterations} alignment iteration(s) failed — 4Sight/WebService4D appears unavailable. "
+            "Please check that 4Sight is running with Web Services enabled."
+        )
 
 def save_image_set(folder_path,Z,remove_coef = [],mirror_type='uncoated'):
     #Store a folder containing h5 files as a tuple
